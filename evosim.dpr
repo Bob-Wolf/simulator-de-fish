@@ -1,0 +1,1371 @@
+{$IFDEF FPC}
+  {$MODE DELPHI}
+  {$H+}
+{$ENDIF}
+
+program evosim;
+
+uses
+  {$IFDEF FPC}
+  Windows,
+  {$ELSE}
+  Winapi.Windows,
+  {$ENDIF }
+  Math,
+  SysUtils,
+  Classes;
+
+type
+  TKeyAction = procedure of object;  // oder normal: procedure; je nach Struktur
+  Tpos = record x, y: Single; end;
+  Tvel = record x, y: Single; end;
+
+  Pjoint  = ^Tjoint;
+  Pbone   = ^Tbone;
+  Pmuscle = ^Tmuscle;
+
+  Tbone = record a, b: Pjoint; rest_length, stiffness : Single; end;
+  Tmuscle = record a, b: Pbone;  min_length, max_length, target, stiffness, freq, phase, sT : Single; end;
+
+  Tjoint = record
+    x, y: Single;
+    px, py: Single;
+    accx, accy : Single;
+    invMass :Single;
+  end;
+
+  Tcollision = record p1, p2: Tpos; friction: Single; typ: Integer; end;
+
+const
+
+  RESTITUTION = 0;   // 0 = kleben, 0.5 = Gummiball
+  WIDTH  = 140;         // Braille-Zellen horizontal
+  HEIGHT = 40;          // Braille-Zellen vertikal
+  VW = WIDTH  * 2;      // virtuelle Pixel horizontal
+  VH = HEIGHT * 4;      // virtuelle Pixel vertikal
+
+  clBlack   = 16;   // xterm-Schwarz; 0 ist fuer "leer" reserviert
+  clRed     = 196;  clBlue    = 21;  clGreen  = 46;  clCyan   = 51;
+  clMagenta = 201;  clYellow  = 226; clWhite  = 231;
+
+  clBrRed   = 9;    clBrGreen = 10;  clBrYellow = 11; clBrBlue = 12;
+  clBrMag   = 13;   clBrCyan  = 14;  clBrWhite  = 15; clGray   = 8;
+  gravity = -9.81*10;
+  FRICTION = 0.8;
+  dampening = 0.97;
+  FRAME_DT = 2/60;
+  SUBSTEPS = 4;
+  SOLVER_ITER = 4;
+
+
+var
+  keyDown:   array[0..255] of Boolean;   // gerade gedrückt?
+  keyWasDown: array[0..255] of Boolean;
+  avgSpeed, currSpeed, prevPos, currPos, speedAmts : Single;
+  curX, curY: Single;
+  firstJoint: Pjoint;
+  selectedJoint: Pjoint;
+  firstBone: Pbone;
+  selectedBone: Pbone;
+  snappedCursor:Boolean;
+  save_select: Integer;
+{  spaceWasDown: Boolean = False;
+  aWasDown: Boolean = False;
+  ZWasDown: Boolean = False;
+  BackWasDown: Boolean = False;
+  PWasDown: Boolean = False;
+pNow: Boolean; //MOVE123 /ROTATE /EDIT PRECISE/ COPY-PASTE /min dist between joints /save load menu with speed /stronger bone, muscles modify stats, gravity etc
+  EntfWasDown: Boolean = False;
+  dWasDown: Boolean = False;
+  Was1Down: Boolean = False;
+  Was2Down: Boolean = False;}
+  prevTime, currTime : UInt64;
+  realDT : Double;
+  pt: TPoint;
+  bResetCamera, camTargetSet: Boolean;
+  bResetCameraDrw : Boolean;
+  camTarget : Single;
+  joints:  array of Pjoint;
+  bones:   array of Pbone;
+  muscles: array of Pmuscle;
+  collisions: array of Tcollision;
+  velZero: Tvel;
+  iterations, time: Single;
+  accumulator: Double;
+
+  pixColor: array of Byte;
+  frameBuf: WideString;
+  curColor: Byte = 0;
+  level: Integer = 0;
+  camx, camy, furthestPoint : Single;
+  mode : Integer = 1; //0 = MENU //1 = DRAW //2 = SIMLUATION //3 = SAVE
+  drwSlct: Integer = 0;
+  strgzable : array of Integer;
+  //strgyable : array of Integer;
+
+//======================= TERMINAL =============================================
+
+procedure InitTerminal;
+var
+  mode: DWORD;
+begin
+  // VT-Processing aktivieren, damit ANSI-Escapes (Cursor-Home, Farbe) funktionieren
+  if GetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), mode) then
+    SetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE),
+                   mode or ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+end;
+
+procedure PutStr(const s: WideString);
+var
+  written: DWORD;
+begin
+  WriteConsoleW(GetStdHandle(STD_OUTPUT_HANDLE), PWideChar(s), Length(s), written, nil);
+end;
+
+//======================= PIXEL / BRAILLE ======================================
+// Intern: y=0 ist UNTEN. Beim Zeichnen wird geflippt, damit das Bild
+// auf dem Kopf wie gewohnt von oben nach unten ausgegeben wird.
+
+function PixelIndex(x, y: Integer): Integer; inline;
+begin
+  Result := x + y * VW;
+end;
+
+procedure DrawPixel(x, y: Integer; color: Byte = clBrWhite);
+begin
+  if (x < 0) or (x >= VW) or (y < 0) or (y >= VH) then Exit;
+  pixColor[PixelIndex(x, y)] := color;
+end;
+
+procedure ClearPixels;
+begin
+  FillChar(pixColor[0], Length(pixColor), 0);
+end;
+
+// Rahmen: NUR die 4 Eckpunkte
+procedure DrawBorder;
+begin
+  DrawPixel(0,     0);
+  DrawPixel(0,     VH - 1);
+  DrawPixel(VW - 1, 0);
+  DrawPixel(VW - 1, VH - 1);
+end;
+
+procedure DrawLine(x1, y1, x2, y2: Integer; color: Byte = clBrWhite);
+var
+  dx, dy, sx, sy, err, e2: Integer;
+begin
+  x1 := Round(x1 - camx);
+  x2 := Round(x2 - camx);
+  y1 := Round(y1 - camy);
+  y2 := Round(y2 - camy);
+  // Das zuletzt Gedrawte bestimmt die Farbe (z.B. rote Linie -> alles rot)
+  //curColor := color;
+  if (x1 = x2) and (y1 = y2) then
+    Exit();
+  dx := Abs(x2 - x1);
+  dy := -Abs(y2 - y1);
+  if x1 < x2 then sx := 1 else sx := -1;
+  if y1 < y2 then sy := 1 else sy := -1;
+  err := dx + dy;
+  while True do
+  begin
+    DrawPixel(x1, y1, color);
+    if (x1 = x2) and (y1 = y2) then Break;
+    e2 := 2 * err;
+    if e2 >= dy then begin err := err + dy; x1 := x1 + sx; end;
+    if e2 <= dx then begin err := err + dx; y1 := y1 + sy; end;
+  end;
+end;
+
+// Braille-Punkt-Bitmaske aus einer 2x4-Zelle.
+// lokal: ly=0 ist die OBERSTE Zeile der Zelle (Screen-orientiert)
+function CellBits(x, y: Integer): Byte;
+const
+  // Bitzuordnung Braille-Punkte (Spalten links/rechts, Zeilen oben->unten):
+  // links:  1 (oben),  2 (mitte),  4 (unten), 64 (ganz unten)
+  // rechts: 8 (oben), 16 (mitte), 32 (unten), 128 (ganz unten)
+  BitMap: array[0..1, 0..3] of Byte =
+    ((1, 2, 4, 64), (8, 16, 32, 128));
+var
+  lx, ly: Integer;
+begin
+  Result := 0;
+  for ly := 0 to 3 do
+    for lx := 0 to 1 do
+      // y wird geflippt: unten im Array = unten am Bildschirm
+      if pixColor[PixelIndex(x + lx, y + (3 - ly))] <> 0 then
+        Result := Result or BitMap[lx, ly];
+end;
+
+function CellColor(x, y: Integer): Byte;
+var
+  lx, ly: Integer;
+begin
+  Result := 0;
+  for ly := 0 to 3 do
+    for lx := 0 to 1 do
+      if pixColor[PixelIndex(x + lx, y + (3 - ly))] <> 0 then
+        Exit(pixColor[PixelIndex(x + lx, y + (3 - ly))]);
+end;
+
+procedure WriteColor(var p: PWideChar; col: Byte);
+begin
+  p^ := WideChar($1B); Inc(p); p^ := '['; Inc(p); p^ := '3'; Inc(p);
+  p^ := '8'; Inc(p); p^ := ';'; Inc(p); p^ := '5'; Inc(p); p^ := ';'; Inc(p);
+  p^ := WideChar(48 + col div 100); Inc(p);
+  p^ := WideChar(48 + (col div 10) mod 10); Inc(p);
+  p^ := WideChar(48 + col mod 10); Inc(p);
+  p^ := 'm'; Inc(p);
+end;
+
+var
+  ov: WideChar;          // <-- fehlt
+
+  overlay: array of WideChar;   // WIDTH * HEIGHT, 0 = leer
+  overlayCol: array of Byte;    //
+
+procedure DrawText(x, y: Integer; const s: WideString; color: Byte = clBrWhite);
+var
+  i: Integer;
+begin
+  for i := 1 to Length(s) do
+  begin
+    if (x + i - 1 < WIDTH) and (y < HEIGHT) then
+    begin
+      overlay[(y * WIDTH) + x + i - 1] := s[i];
+      overlayCol[(y * WIDTH) + x + i - 1] := color;
+    end;
+  end;
+end;
+
+procedure ClearOverlay;
+begin
+  FillChar(overlay[0], Length(overlay) * SizeOf(WideChar), 0);
+end;
+
+
+procedure Draw();
+var
+  x, y, baseY: Integer;
+  bits, col, lastCol: Byte;
+  // --- Optimierung: direkt in einen einmal zugewiesenen Puffer schreiben,
+  // statt tausende "frame := frame + ..." (O(n^2)-Kopien) zu machen.
+  cap: Integer;
+  p : PWideChar;
+begin
+  // Kapazitaet: worst case reicht locker; einmal SetLength statt stetigem ReAlloc
+  cap := 64 + HEIGHT * (WIDTH * 32 + 16) + 64;
+  SetLength(frameBuf, cap);
+  p := PWideChar(frameBuf);
+
+  // Kein ESC[2J (Clear): flackert. ESC[H reicht, jede Zeile wird voll ueberschrieben.
+  p^ := WideChar($1B); Inc(p); p^ := '['; Inc(p); p^ := 'H'; Inc(p);
+
+  lastCol := 0;   // 0 = noch keine Farbe aktiv gesetzt
+  for y := 0 to HEIGHT - 1 do
+  begin
+        for x := 0 to WIDTH - 1 do
+    begin
+      baseY := VH - 4 - y * 4;
+
+      ov := overlay[y * WIDTH + x];   // var ov: WideChar;
+
+      if ov <> #0 then
+      begin
+        if overlayCol[y * WIDTH + x] <> lastCol then
+        begin
+          WriteColor(p, overlayCol[y * WIDTH + x]);
+          lastCol := overlayCol[y * WIDTH + x];
+        end;
+        p^ := ov; Inc(p);
+      end
+      else
+      begin
+        col  := CellColor(x * 2, baseY);
+        bits := CellBits(x * 2, baseY);
+
+        if (bits <> 0) and (col <> lastCol) then
+        begin
+          WriteColor(p, col);
+          lastCol := col;
+        end;
+        p^ := WideChar($2800 + bits); Inc(p);
+      end;
+    end;
+
+    // Zeilenende: Newline. Farbe bleibt aktiv -> naechste Zelle mit
+    // anderer Farbe loest selbst wieder einen Wechsel aus.
+    p^ := #10; Inc(p);
+  end;
+
+  // Schluss-Reset
+  p^ := WideChar($1B); Inc(p); p^ := '['; Inc(p); p^ := '0'; Inc(p); p^ := 'm'; Inc(p);
+
+  SetLength(frameBuf, p - PWideChar(frameBuf));
+  PutStr(frameBuf);
+end;
+
+procedure DrawMap1();
+begin
+  DrawLine(0, 3, 500, 3, clGreen);
+  DrawLine(0, 4, 0, 100, clGray)
+end;
+
+procedure DrawMap();
+begin
+  case level of
+    0: DrawMap1;
+  end;
+
+end;
+
+procedure DrawCollisions();
+var
+  i:Integer;
+begin
+  for i:=0 to High(collisions) do
+  begin
+    DrawLine(Round(collisions[i].p1.x), Round(collisions[i].p1.y), Round(collisions[i].p2.x), Round(collisions[i].p2.y), clGreen);
+  end;
+end;
+
+procedure DrawJoints();
+var
+  i:Integer;
+begin
+  for i:=0 to High(joints) do
+  begin
+    DrawLine(Round(joints[i]^.x - 1), Round(joints[i]^.y + 1), Round(joints[i]^.x + 1), Round(joints[i]^.y + 1), clYellow);
+    DrawLine(Round(joints[i]^.x - 1), Round(joints[i]^.y), Round(joints[i]^.x + 1), Round(joints[i]^.y), clYellow);
+    DrawLine(Round(joints[i]^.x - 1), Round(joints[i]^.y - 1), Round(joints[i]^.x + 1), Round(joints[i]^.y - 1), clYellow);
+  end;
+end;
+procedure DrawCurrentBone();
+begin
+  if (firstJoint <> nil) then
+    DrawLine(Round(firstJoint^.x), Round(firstJoint^.y), Round(pt.x / 1440 * VW), Round(VH - pt.y / 900 * VH)-1, clGray);
+end;
+procedure DrawCurrentMuscle();
+begin
+  if (firstBone <> nil) then
+    DrawLine(Round((firstBone^.a^.x + firstBone^.b^.x)/2), Round((firstBone^.a^.y + firstBone^.b^.y)/2), Round(pt.x / 1440 * VW), Round(VH - pt.y / 900 * VH)-1, clBrRed);
+end;
+procedure DrawBones();
+var
+  i:Integer;
+begin
+  for i:=0 to High(bones) do
+  begin
+    DrawLine(Round(bones[i]^.a.x), Round(bones[i]^.a.y), Round(bones[i]^.b.x), Round(bones[i]^.b.y), clBrWhite);
+  end;
+end;
+
+function BoneMid(b: Pbone): Tpos;
+begin
+  Result.x := (b^.a^.x + b^.b^.x) * 0.5;
+  Result.y := (b^.a^.y + b^.b^.y) * 0.5;
+end;
+procedure DrawMuscles();
+var
+  i: Integer;
+  pa, pb: Tpos;
+begin
+  for i := 0 to High(muscles) do
+  begin
+    pa := BoneMid(muscles[i]^.a);
+    pb := BoneMid(muscles[i]^.b);
+    DrawLine(Round(pa.x), Round(pa.y), Round(pb.x), Round(pb.y), clRed);
+  end;
+end;
+
+
+
+function IndexOfJoint(j: Pjoint): Integer;
+var
+  i: Integer;
+begin
+  Result := -1;
+  for i := 0 to High(joints) do
+    if joints[i] = j then Exit(i);
+end;
+
+function IndexOfBone(b: Pbone): Integer;
+var
+  i: Integer;
+begin
+  Result := -1;
+  for i := 0 to High(bones) do
+    if bones[i] = b then Exit(i);
+end;
+
+function ExePath: string;
+begin
+  Result := ExtractFilePath(ParamStr(0));
+end;
+
+procedure SaveCreature(const filename: string);
+var
+  f: TextFile;
+  i: Integer;
+  ia, ib: Integer;
+begin
+  AssignFile(f, filename);
+  Rewrite(f);
+
+  // Joints: x y invMass
+  WriteLn(f, Length(joints));
+  for i := 0 to High(joints) do
+    WriteLn(f, joints[i]^.x, ' ', joints[i]^.y, ' ', joints[i]^.invMass);
+
+  // Bones: indexA indexB rest_length stiffness
+  WriteLn(f, Length(bones));
+  for i := 0 to High(bones) do
+  begin
+    ia := IndexOfJoint(bones[i]^.a);
+    ib := IndexOfJoint(bones[i]^.b);
+    WriteLn(f, ia, ' ', ib, ' ', bones[i]^.rest_length, ' ', bones[i]^.stiffness);
+  end;
+
+  // Muscles: indexA indexB min max stiffness freq phase
+  WriteLn(f, Length(muscles));
+  for i := 0 to High(muscles) do
+  begin
+    ia := IndexOfBone(muscles[i]^.a);
+    ib := IndexOfBone(muscles[i]^.b);
+    WriteLn(f, ia, ' ', ib, ' ', muscles[i]^.min_length, ' ',
+            muscles[i]^.max_length, ' ', muscles[i]^.stiffness, ' ',
+            muscles[i]^.freq, ' ', muscles[i]^.phase);
+  end;
+
+  CloseFile(f);
+
+  WriteLn('Gespeichert: ', Length(joints), ' joints, ',
+          Length(bones), ' bones, ', Length(muscles), ' muscles -> ',
+          ExpandFileName(filename));
+end;
+
+procedure ClearCreature;
+var
+  i: Integer;
+begin
+  for i := 0 to High(joints)  do Dispose(joints[i]);
+  for i := 0 to High(bones)   do Dispose(bones[i]);
+  for i := 0 to High(muscles) do Dispose(muscles[i]);
+  SetLength(joints, 0); SetLength(bones, 0); SetLength(muscles, 0);
+  SetLength(strgzable, 0);
+  firstJoint := nil; selectedJoint := nil;
+  firstBone := nil;  selectedBone := nil;
+end;
+
+
+//======================= HELPER FUNCTIONS =====================================
+
+
+
+function getAngleOffBone(var bone: Pbone): Single;
+var
+  dx, dy: Single;
+begin
+  dx := bone^.b^.x - bone^.a^.x;
+  dy := bone^.b^.y - bone^.a^.y;
+  Result := RadToDeg(ArcTan2(dy, dx));
+end;
+
+function sgBasicCollision(x1, y1, x2, y2: Single; friction: Single = 1; typ: Integer = 1): Tcollision;
+begin
+  Result := Default(Tcollision);
+  Result.p1.x := x1; Result.p1.y := y1;
+  Result.p2.x := x2; Result.p2.y := y2;
+  Result.friction := friction;
+  Result.typ := typ;
+  SetLength(collisions, Length(collisions) + 1);
+  collisions[High(collisions)] := Result;
+end;
+
+function sgBasicJoint(x, y: Single; invMass:Single = 1): Pjoint;
+begin
+  New(Result);
+  Result^ := Default(Tjoint);
+  Result^.x := x; Result^.y := y;
+  Result^.px := x; Result^.py := y;
+  Result^.invMass := invMass;
+  SetLength(joints, Length(joints) + 1);
+  joints[High(joints)] := Result;
+  SetLength(strgzable, Length(strgzable) + 1);
+  strgzable[High(strgzable)] := 0;
+end;
+
+function sgBasicBone(jointA, jointB: Pjoint; rest_length, stiffness : Single): Pbone;
+begin
+  New(Result);
+  Result^ := Default(Tbone);
+  Result^.a := jointA;
+  Result^.b := jointB;
+  Result^.stiffness := stiffness;
+  Result^.rest_length := rest_length;
+  SetLength(bones, Length(bones) + 1);
+  bones[High(bones)] := Result;
+  SetLength(strgzable, Length(strgzable) + 1);
+  strgzable[High(strgzable)] := 1;
+end;
+
+function sgBasicMuscle(boneA, boneB: Pbone; min_length, max_length, stiffness, freq, phase : Single): Pmuscle;
+begin
+  New(Result);
+  Result^ := Default(Tmuscle);
+  Result^.a := boneA;
+  Result^.b := boneB;
+  Result^.stiffness := stiffness;
+  Result^.min_length := min_length;
+  Result^.max_length := max_length;
+  Result^.target := (max_length+min_length)/2;
+  Result^.freq := freq;
+  Result^.phase := phase;
+  SetLength(muscles, Length(muscles) + 1);
+  muscles[High(muscles)] := Result;
+  SetLength(strgzable, Length(strgzable) + 1);
+  strgzable[High(strgzable)] := 2;
+end;
+
+procedure LoadCreature(const filename: string);
+var
+  f: TextFile;
+  n, i, ia, ib: Integer;
+  x, y, invMass: Single;
+  rl, st, mn, mx, sf, fq, ph: Single;
+begin
+  ClearCreature;
+  AssignFile(f, filename);
+  {$I-}
+  Reset(f);
+  {$I+}
+  if IOResult <> 0 then Exit;   // Datei fehlt
+
+  ReadLn(f, n);                 // Zahl, nichts anderes
+  for i := 0 to n-1 do
+  begin
+    ReadLn(f, x, y, invMass);
+    joints[i] := sgBasicJoint(x, y, invMass);
+  end;
+
+  ReadLn(f, n);
+  for i := 0 to n-1 do
+  begin
+    ReadLn(f, ia, ib, rl, st);
+    bones[i] := sgBasicBone(joints[ia], joints[ib], rl, st);
+  end;
+
+  ReadLn(f, n);
+  for i := 0 to n-1 do
+  begin
+    ReadLn(f, ia, ib, mn, mx, sf, fq, ph);
+    muscles[i] := sgBasicMuscle(bones[ia], bones[ib], mn, mx, sf, fq, ph);
+  end;
+
+  CloseFile(f);
+end;
+
+
+procedure DeleteLastJoint;
+begin
+  if Length(joints) = 0 then Exit;
+  Dispose(joints[High(joints)]);
+  SetLength(joints, Length(joints) - 1);
+
+  // Dispose(strgzable[High(strgzable)]);
+  SetLength(strgzable, Length(strgzable) - 1);
+end;
+
+procedure DeleteLastBone;
+begin
+  if Length(bones) = 0 then Exit;
+  Dispose(bones[High(bones)]);
+  SetLength(bones, Length(bones) - 1);
+
+  // Dispose(strgzable[High(strgzable)]);
+  SetLength(strgzable, Length(strgzable) - 1);
+end;
+
+procedure DeleteLastMuscle;
+begin
+  if Length(muscles) = 0 then Exit;
+  Dispose(muscles[High(muscles)]);
+  SetLength(muscles, Length(muscles) - 1);
+
+  // Dispose(strgzable[High(strgzable)]);
+  SetLength(strgzable, Length(strgzable) - 1);
+end;
+
+
+function XtoYCoordoLine(const p1, p2: Tpos; y: Single; out x: Single): Boolean;
+var
+  dy: Single;
+begin
+  dy := p2.y - p1.y;
+  if Abs(dy) < 1e-10 then Exit(False);
+  x := p1.x + (y - p1.y) * (p2.x - p1.x) / dy;
+  Result := True;
+end;
+
+function YtoXCoordoLine(const p1, p2: Tpos; x: Single; out y: Single): Boolean;
+var
+  dx: Single;
+begin
+  dx := p2.x - p1.x;
+  if Abs(dx) < 1e-10 then Exit(False);
+  y := p1.y + (x - p1.x) * (p2.y - p1.y) / dx;
+  Result := True;
+end;
+
+function MinS(a, b: Single): Single; inline;
+begin
+  if a < b then Result := a else Result := b;
+end;
+
+function MaxS(a, b: Single): Single; inline;
+begin
+  if a > b then Result := a else Result := b;
+end;
+
+
+//=============================================================================
+procedure LoadMap1();
+begin
+  sgBasicCollision(-400, 4, 2000, 4);
+end;
+
+procedure Init();
+var
+  jointA, jointB, jointC, jointD: Pjoint;
+  bone, bone2, bone3: Pbone;
+begin
+  velZero.x := 0; velZero.y := 0;
+
+  //sgBasicCollision(0, 5, 300, 5);
+  if (level = 0) then LoadMap1;
+
+  //jointA := sgBasicJoint(160, 57);
+  //jointB := sgBasicJoint(160, 77);
+  //jointC := sgBasicJoint(140, 77);
+  //jointD := sgBasicJoint(140, 57);
+  //jointA.vels.x := 3;
+  //jointA.vels.y := 6;
+  //bone := sgBasicBone(jointA, jointB, 20, 0.95);
+  //bone2 := sgBasicBone(jointC, jointB, 20, 0.95);
+  //bone3 := sgBasicBone(jointC, jointD, 20, 0.95);
+
+  //sgBasicMuscle(bone, bone2, 8, 20, 0.5, 1.0, 0);
+  //sgBasicMuscle(bone2, bone3, 8, 20, 0.5, 1.0, 0);
+  //sgBasicMuscle(bone, bone3, 8, 20, 0.5, 1.0, 0);
+
+  SetLength(overlay, WIDTH * HEIGHT);
+  SetLength(overlayCol, WIDTH * HEIGHT);
+
+
+  //WriteLn(Round(getAngleOffBone(bone)));
+end;
+
+procedure Controller(dt: Single);
+var
+  i:Integer;
+  signal, a, b, n:Single;
+  curM:Tmuscle;
+begin
+  for i := 0 to High(muscles) do
+  begin
+    curM := muscles[i]^;
+    signal := Sin(time * curM.freq * 2*Pi + curM.phase);
+    //a := (signal +1) / 2;
+    //call an netzwerk => vvvvv ( -1 — 1)
+    //n ist hier der output des netzwerks für den einen Muskel ( -1 — 1)
+    n := Random(1 - 0 + 1);
+    b := curM.min_length + ((n + 1) * 0.5) * (curM.max_length - curM.min_length);
+    a := 1 - Exp(-dt / 0.1);        // dt = Substep-Delta-Zeit!
+    //target := curM.target + alpha * (desired - curM.target);
+    muscles[i]^.target := curM.target + a * (b - curM.target);
+
+ { (muscles[i]^.target + curM.max_length - (1 - Exp(-dt / 0.02);) * (curM.max_length - curM.min_length))/7}{curM.max_length - a * (curM.max_length - curM.min_length)};
+  end;
+end;
+
+procedure CalcForces();
+var
+  i:Integer;
+  curJ : Pjoint;
+begin
+  for i := 0 to High(joints) do
+  begin
+    curJ := joints[i];
+    curJ^.accx := 0;
+    curJ^.accy := 0;
+    if (curJ^.invMass > 0) then
+    begin
+      curJ^.accy := curJ^.accy + gravity;
+      //acc = F*invMass
+    end;
+  end;
+end;
+
+function detectLines(XX: Boolean; velocity, sign, spx, spy : Single; c: Tcollision; out px, gx, gy : Single) : Boolean;
+var
+  onLine, ix, iy, ix2, iy2, gT, len: Single;
+  overLine: Boolean;
+  x, y: Integer;
+begin
+  if XX then
+  begin
+    ix := c.p1.y;
+    iy := c.p2.y;
+    ix2 := c.p1.x;
+    iy2 := c.p2.x;
+  end
+  else
+  begin
+    ix := c.p1.x;
+    iy := c.p2.x;
+    ix2 := c.p1.y;
+    iy2 := c.p2.y;
+  end;
+  if velocity <> 0 then
+    begin
+      y := Round(Abs(velocity)-0.5);
+      for x := 0 to y do
+      begin
+      overLine := False;
+      if (spy < MaxS(ix, iy)) and (spy > MinS(ix, iy)) then
+      begin
+        if XX and XtoYCoordoLine(c.p1, c.p2, spy, onLine) then
+        begin
+          if velocity > 0 then
+          begin
+            if (spx <= onLine) and (spx + sign >= onLine) then overLine := True;
+          end
+          else
+            if (spx >= onLine) and (spx + sign <= onLine) then overLine := True;
+        end;
+        if XX <> True and YtoXCoordoLine(c.p1, c.p2, spy, onLine) then
+        begin
+          if velocity > 0 then
+          begin
+            if (spx <= onLine) and (spx + sign >= onLine) then overLine := True;
+          end
+          else
+            if (spx >= onLine) and (spx + sign <= onLine) then overLine := True;
+        end;
+      end;
+      if overLine then
+      begin
+        px := onLine - sign;
+
+        len := Sqrt(Sqr(iy2 - ix2) + Sqr(ix - iy));
+        if len < 1e-9 then Break;
+        gT := -0.3 * ((ix2 - iy2)/len);//TBD GRAVITIY VALS
+        gx := gT * (ix - iy) / len;
+        gy := gT * (ix2 - iy2) / len;
+        Result := True;
+        Break;
+      end
+      else
+        spx := spx + sign; //TODO FRICITONS!!
+    end;
+  end;
+  if overLine <> True then
+  begin
+    px := spx;
+    gx := 0;
+    gy := 0;
+    Result := False;
+  end;
+end;
+
+
+procedure detectLinesAll(XX: Boolean; velocity, sign, spx, spy : Single; out px, gx, gy : Single; out hitt : Boolean);
+var
+  h:Boolean;
+  t:Single;
+  i:Integer;
+  c : Tcollision;
+begin
+  h:=False;
+  for i := 0 to High(collisions) do
+  begin
+    c := collisions[i];
+    h := h or detectLines(XX, velocity, sign, spx, spy, c, t,t,t);
+
+  end;
+  hitt := h;
+end;
+
+
+
+
+procedure Physics(dt: Double);
+var
+  i: Integer;
+  velx, vely: Single;
+  curJ: Pjoint;
+begin
+  for i:=0 to High(joints) do
+  begin
+    curJ := joints[i];
+    if curJ^.invMass = 0 then
+    begin
+      curJ^.px := curJ^.x ; curJ^.py := curJ^.y;
+      continue;
+    end;
+    curJ^ := joints[i]^;
+    velx := (curJ^.x - curJ^.px) * dampening;
+    vely := (curJ^.y - curJ^.py) * dampening;
+    curJ^.px := curJ^.x ; curJ^.py := curJ^.y;
+
+    curJ^.x := curJ^.x + velx + curJ^.accx * Sqr(dt);
+    curJ^.y := curJ^.y + vely + curJ^.accy * Sqr(dt);
+
+  end;
+end;
+
+function pointNearLine(distance, px, py, x, y, xx, yy:Single) : Boolean;
+var
+  abx, aby, apx, apy, t, cx,cy:Single;
+begin
+  abx := xx - x;
+  aby := yy - y;
+  apx := px - x;
+  apy := py - y;
+
+  t := (apx*abx + apy*aby) / (abx*abx + aby*aby);
+
+
+  t := min(1, max(0, t));
+
+  cx := x+t*abx;
+  cy := y+t*aby;
+
+  Result := sqr(px-cx) + sqr(py-cy) <= sqr(distance);
+end;
+
+// Prueft einen Joint gegen eine Kollisionslinie (Segment p1->p2).
+// Konvention: Die Linie ist "der Boden"; draussen ist die Seite,
+// auf die die Normale (edge um 90 Grad gedreht, normiert) zeigt.
+procedure CollideJoint(curJ: Pjoint; const c: Tcollision);
+var
+  ex, ey, rl, len, side, depth, nx, ny: Single;
+  dx, dy, vn, vtn: Single;
+  tx, ty: Single;
+  t: Single;
+begin
+  ex := c.p2.x - c.p1.x;             // Kantenvektor
+  ey := c.p2.y - c.p1.y;
+  len := Sqrt(Sqr(ex) + Sqr(ey));
+  if len < 1e-9 then Exit;
+
+  nx := -ey / len;                   // Normale: edge 90 Grad gedreht
+  ny :=  ex / len;
+
+  side := (curJ^.x - c.p1.x) * nx    // vorzeichenbehafteter Abstand
+        + (curJ^.y - c.p1.y) * ny;   // zur Ebene (skalarproduct mit n)
+
+  if side >= 0 then Exit;            // draussen -> nichts tun
+
+  depth := -side;                    // Eindringtiefe (positiv)
+
+  // Segment-Check: Fusspunkt muss innerhalb p1..p2 liegen
+  // (Projektion des Joints auf die Kante, Parameter t in [0,1])
+  t := ((curJ^.x - c.p1.x) * ex + (curJ^.y - c.p1.y) * ey) / (len*len);
+  if (t < 0) or (t > 1) then Exit;
+
+  // 1) Herausschieben: senkrecht zur Linie
+  curJ^.x := curJ^.x + nx * depth;
+  curJ^.y := curJ^.y + ny * depth;
+
+  // 2) Geschwindigkeit (pos - prev) zerlegen
+  dx := curJ^.x - curJ^.px;
+  dy := curJ^.y - curJ^.py;
+  vn := dx * nx + dy * ny;           // Normalkomponente
+  tx := dx - vn * nx;                // Tangentialanteil
+  ty := dy - vn * ny;
+
+  // 3) Reibung tangential, Restitution normal, zurueck in prev
+  curJ^.px := curJ^.x - tx * (1 - c.friction) - nx * (-vn) * RESTITUTION;
+  curJ^.py := curJ^.y - ty * (1 - c.friction) - ny * (-vn) * RESTITUTION;
+end;
+
+procedure Collision();
+var
+  i, k: Integer;
+begin
+  for i := 0 to High(joints) do
+  begin
+    for k := 0 to High(collisions) do
+      CollideJoint(joints[i], collisions[k]);
+    if joints[i]^.x > furthestPoint then furthestPoint := joints[i]^.x;
+    end;
+end;
+
+
+procedure solvePair(A, B: Pjoint; target, stiffness: Double);
+var
+  dx, dy, len, diff, w: Double;
+begin
+  dx := A^.x - B^.x;
+  dy := A^.y - B^.y;
+  len := sqrt(sqr(dx) + sqr(dy));
+  if len < 0.0001 then Exit;
+  diff := (len - target) / len;
+  w := A^.invMass + B^.invMass;
+  if w = 0 then Exit;
+  A^.x := A^.x - dx * diff * (A^.invMass/w)*stiffness; B^.x := B^.x + dx * diff * (B^.invMass/w)*stiffness;
+  A^.y := A^.y - dy * diff * (A^.invMass/w)*stiffness; B^.y := B^.y + dy * diff * (B^.invMass/w)*stiffness;
+end;
+procedure SolveMuscle(const m: Tmuscle; target, stiffness: Double);
+var
+  ax, ay, bx, by: Single;
+  dx, dy, len, diff, corr: Double;
+begin
+  ax := (m.a^.a^.x + m.a^.b^.x) * 0.5;
+  ay := (m.a^.a^.y + m.a^.b^.y) * 0.5;
+  bx := (m.b^.a^.x + m.b^.b^.x) * 0.5;
+  by := (m.b^.a^.y + m.b^.b^.y) * 0.5;
+
+  dx := ax - bx;
+  dy := ay - by;
+  len := Sqrt(Sqr(dx) + Sqr(dy));
+  if len < 0.0001 then Exit;
+  diff := (len - target) / len;
+  corr := diff * stiffness * 0.5;
+
+  // Bone a: Mitte rueckt Richtung b (bzw. weg, je nach Vorzeichen)
+  m.a^.a^.x := m.a^.a^.x - dx * corr;
+  m.a^.a^.y := m.a^.a^.y - dy * corr;
+  m.a^.b^.x := m.a^.b^.x - dx * corr;
+  m.a^.b^.y := m.a^.b^.y - dy * corr;
+
+  // Bone b: gegenteilig
+  m.b^.a^.x := m.b^.a^.x + dx * corr;
+  m.b^.a^.y := m.b^.a^.y + dy * corr;
+  m.b^.b^.x := m.b^.b^.x + dx * corr;
+  m.b^.b^.y := m.b^.b^.y + dy * corr;
+end;
+
+
+procedure Constrains();
+var
+  i: Integer;
+  curB: Tbone;
+  curM: Tmuscle;
+begin
+  for i:=0 to High(bones) do
+  begin
+    curB := bones[i]^;
+    solvePair(curB.a, curB.b, curB.rest_length, curB.stiffness);
+    //TBD MUSCLES
+  end;
+  for i:=0 to High(muscles) do
+  begin
+    curM := muscles[i]^;
+    SolveMuscle(curM, curM.target, curM.stiffness);
+    //solvePair(curM.a, curM.b, curM.target, curM.stiffness);
+    //TBD MUSCLES
+  end;
+end;
+
+procedure calcSpeeds(dt: Double);
+var
+  i: Integer;
+  sum: Single;
+begin
+  sum := 0;
+  for i := 0 to High(joints) do
+    sum := sum + (joints[i]^.x - joints[i]^.px);
+  currSpeed := sum / dt;                      // px/s, über alle Joints gemittelt
+
+  speedAmts := speedAmts + 1;                 // gezählte Messungen
+  avgSpeed := avgSpeed + (currSpeed - avgSpeed) / speedAmts;   // laufender Mittelwert
+end;
+
+
+procedure SimulationTick(frameDt: Double);
+var
+  dt : Double; i,s:Integer;
+begin
+  dt:= frameDt / SUBSTEPS;
+
+  for s := 1 to SUBSTEPS do
+  begin
+    Controller(dt);
+    CalcForces();
+    Physics(dt);
+    for i := 1 to SOLVER_ITER do
+    begin
+      Constrains;
+      Collision;
+    end;
+    time := time + dt;
+  end;
+  calcSpeeds(frameDt);
+end;
+
+procedure resetCamera(dt: Double);
+const
+  DECAY = 0.3;
+begin
+  if not camTargetSet then
+  begin
+    camTarget := furthestPoint - 141;
+    camTargetSet := True;
+  end;
+
+  camx := camx + (camTarget - camx) * (1 - Exp(-DECAY * dt));
+  camy := camy * Exp(-DECAY * dt);
+
+  if (Abs(camy) < 0.8) and (Abs(camx - camTarget) < 0.8) then
+  begin
+    camy := 0;
+    camx := camTarget;
+    camTargetSet := False;
+  end;
+end;
+
+procedure resetCameraDrw(dt: Double);
+const
+  DECAY = 0.3;
+begin
+  camx := camx * (Exp(-DECAY * dt));
+  camy := camy * Exp(-DECAY * dt);
+
+  if (Abs(camy) < 0.8) and (Abs(camx) < 0.8) then
+  begin
+    camy := 0;
+    camx := 0;
+  end;
+end;
+
+
+procedure InputUpdate;
+var
+  k: Integer;
+begin
+  for k := 0 to 255 do
+  begin
+    keyWasDown[k] := keyDown[k];
+    keyDown[k] := (GetAsyncKeyState(k) and $8000) <> 0;
+  end;
+end;
+
+function getMuscleValue(m: Pmuscle): Single;
+var
+  a : Single;
+begin
+  a := ((m^.target-m^.min_length)/(m^.max_length-m^.min_length)) * 2 - 1;
+
+  Result := a;
+end;
+
+function Key(k: Integer): Boolean; inline;   // gehalten
+begin
+  Result := keyDown[k];
+end;
+
+function KeyPressed(k: Integer): Boolean; inline;  // frisch gedrückt (Edge)
+begin
+  Result := keyDown[k] and not keyWasDown[k];
+end;
+
+function KeyReleased(k: Integer): Boolean; inline; // frisch losgelassen
+begin
+  Result := not keyDown[k] and keyWasDown[k];
+end;
+
+procedure playerInputsSim;
+begin
+  if KeyPressed(VK_ESCAPE) then Halt;
+
+  // Kamera (gehalten)
+  if Key(VK_LEFT)  then begin camx := camx - 0.5; bResetCamera := False; end;
+  if Key(VK_RIGHT) then begin camx := camx + 0.5; bResetCamera := False; end;
+  if Key(VK_DOWN)  then begin camy := camy - 0.5; bResetCamera := False; end;
+  if Key(VK_UP)    then begin camy := camy + 0.5; bResetCamera := False; end;
+
+  if KeyPressed(Ord('R')) then bResetCamera := True;
+
+  // Zurück in den Zeichenmodus
+  if (KeyPressed(Ord('P'))) then
+  begin
+    mode := 1;
+    bResetCameraDrw := True;
+    LoadCreature(ExePath + 'current.lol');
+    WriteLn('load play!: ', ExePath);
+  end;
+end;
+
+procedure playerInputsSave;
+var
+  i:Integer;
+  txt:WideString;
+begin
+  for i:=0 to 9 do
+  begin
+    txt := Format('%d', [i]);
+    DrawText(8, i+10, txt, clGray);
+  end;
+  txt := Format('%d', [save_select]);
+  DrawText(8, save_select+10, txt, clWhite);
+
+  if Key(VK_LEFT)  then begin camx := camx - 0.5; bResetCameraDrw := False; end;
+  if Key(VK_RIGHT) then begin camx := camx + 0.5; bResetCameraDrw := False; end;
+  if KeyPressed(VK_DOWN)  then begin save_select := save_select - 1; if save_select <0 then save_select := 9; end;
+  if KeyPressed(VK_UP)    then begin save_select := (save_select + 1) mod 10; end;
+  if KeyPressed(Ord('1')) then mode := 1;
+end;
+
+procedure playerInputsDraw;
+var
+  i: Integer;
+  dist: Single;
+  pr, r : Single;
+begin
+  snappedCursor := False;
+  if KeyPressed(VK_ESCAPE) then Halt;
+
+  // Kamera-Reset-Taste (R): kein Edge nötig, aber frisch ist okay
+  if KeyPressed(Ord('R')) then bResetCameraDrw := True;
+
+  // Cursor-Screen-Position und Snapping
+  r := 4;
+  pr := 2;
+  curX := pt.x / 1440 * VW + camx;
+  curY := VH - pt.y / 900 * VH + camy;
+  selectedJoint := nil;
+  selectedBone := nil;
+
+  if drwSlct = 1 then
+    for i := 0 to High(joints) do
+      if (Abs(curX - joints[i]^.x) <= r) and (Abs(curY - joints[i]^.y) <= r) then
+      begin
+        curX := joints[i]^.x;
+        curY := joints[i]^.y;
+        selectedJoint := joints[i];
+        snappedCursor := True;
+        Break;
+      end;
+  if drwSlct = 2 then
+    for i := 0 to High(bones) do
+      if pointNearLine(pr, curX, curY, bones[i]^.a^.x, bones[i]^.a^.y, bones[i]^.b^.x, bones[i]^.b^.y) then
+      begin
+        selectedBone := bones[i];
+        snappedCursor := True;
+        Break;
+      end;
+
+  // ---- Undo (Ctrl+Z bzw. Z) ----
+  if KeyPressed(Ord('Z')) then
+    if Length(strgzable) > 0 then
+      case strgzable[High(strgzable)] of
+        0: DeleteLastJoint;
+        1: DeleteLastBone;
+        2: DeleteLastMuscle;
+      end;
+
+  // ---- Save / Load ----
+  if KeyPressed(Ord('1')) then
+  begin
+    mode := 3;
+    save_select := 0;
+    //SaveCreature(ExePath + 'creature.lol');
+    //WriteLn('save!: ', ExePath);
+  end;
+
+  {if KeyPressed(Ord('2')) then
+  begin
+    LoadCreature(ExePath + 'creature.lol');
+    WriteLn('load!: ', ExePath);
+  end;}
+
+  // ---- Play-Modus (P) ----
+  if (KeyPressed(Ord('P'))) and (Length(strgzable) <> 0) then
+  begin
+    mode := 2;
+    //SaveCreature(ExePath + 'current.lol');
+    WriteLn('save play!: ', ExePath);
+    speedAmts := 0;
+    bResetCamera := True;
+  end;
+
+  // ---- Kamera (gehalten, kein Edge) ----
+  if Key(VK_LEFT)  then begin camx := camx - 0.5; bResetCameraDrw := False; end;
+  if Key(VK_RIGHT) then begin camx := camx + 0.5; bResetCameraDrw := False; end;
+  if Key(VK_DOWN)  then begin camy := camy - 0.5; bResetCameraDrw := False; end;
+  if Key(VK_UP)    then begin camy := camy + 0.5; bResetCameraDrw := False; end;
+
+  // ---- Objekte platzieren / verbinden (Space) ----
+  if KeyPressed(Ord(' ')) then
+  begin
+    case drwSlct of
+      0: sgBasicJoint(pt.x / 1440 * VW, VH - pt.y / 900 * VH);  // TBD: kein Joint in der Nähe
+
+      1: begin
+           if (firstJoint = nil) and (selectedJoint <> nil) then
+             firstJoint := selectedJoint
+           else if (firstJoint <> nil) and (selectedJoint <> nil) and (firstJoint <> selectedJoint) then
+           begin
+             sgBasicBone(firstJoint, selectedJoint,
+               Sqrt(Sqr(selectedJoint^.x - firstJoint^.x) +
+                    Sqr(selectedJoint^.y - firstJoint^.y)), 1);
+             firstJoint := nil;
+           end;
+         end;
+
+      2: begin
+           if (firstBone = nil) and (selectedBone <> nil) then
+             firstBone := selectedBone
+           else if (firstBone <> nil) and (selectedBone <> nil) and (firstBone <> selectedBone) then
+           begin
+             dist := Sqrt(Sqr(BoneMid(firstBone).x - BoneMid(selectedBone).x) +
+                          Sqr(BoneMid(firstBone).y - BoneMid(selectedBone).y));
+             sgBasicMuscle(firstBone, selectedBone, dist * 0.5, dist*1.5, 0.5, 1.0, 0);
+             firstBone := nil;
+           end;
+         end;
+    end;
+  end;
+
+  // ---- Werkzeug wechseln (A/D) ----
+  if KeyPressed(Ord('A')) then
+  begin
+    drwSlct := (drwSlct - 1 + 3) mod 3;
+    firstJoint := nil; firstBone := nil;
+  end;
+
+  if KeyPressed(Ord('D')) then
+  begin
+    drwSlct := (drwSlct + 1) mod 3;
+    firstJoint := nil; firstBone := nil;
+  end;
+end;
+
+
+procedure drawCursor;
+begin
+    DrawPixel(Round(pt.x / 1440 * VW), Round(VH - pt.y / 900 * VH)-1, clCyan);
+    DrawPixel(Round(pt.x / 1440 * VW)-1, Round(VH - pt.y / 900 * VH), clCyan);
+    DrawPixel(Round(pt.x / 1440 * VW), Round(VH - pt.y / 900 * VH)+1, clCyan);
+    DrawPixel(Round(pt.x / 1440 * VW)+1, Round(VH - pt.y / 900 * VH), clCyan);
+end;
+
+procedure DrawMarker(x, y: Integer; color: Byte);
+var
+  sx, sy: Integer;
+begin
+  sx := Round(x - camx);
+  sy := Round(y - camy);
+  DrawLine(sx - 1, sy - 1, sx + 1, sy - 1, color);
+  DrawLine(sx - 1, sy,     sx + 1, sy,     color);
+  DrawLine(sx - 1, sy + 1, sx + 1, sy + 1, color);
+end;
+
+procedure mode1;
+begin
+  playerInputsDraw;
+  if bResetCameraDrw then resetCameraDrw(FRAME_DT);
+  DrawBones;
+  DrawMuscles;
+  DrawCurrentBone;
+  DrawCurrentMuscle; //TBD
+  DrawJoints;
+  DrawLine(0, 3, 500, 3, clGreen);
+  if not snappedCursor then  drawCursor;
+{  else DrawMarker(pt.x, pt.y, clGreen);}
+
+  case drwSlct of
+    0: DrawText(2, 2, '[Joints]', clBrYellow);
+    1: DrawText(2, 2, '[ Bone ]', clBrWhite);
+    2: DrawText(2, 2, '[Muscle]', clRed);
+  end;
+  DrawText(1, 3, '[R]eset Camera     [Space]Place     [A/D]Switch Obj     [Z]Undo     [P]lay     [Backspace]Del Selected Obj     [Entf]Reset', clWhite);
+  DrawText(1, 4, '[1]Save Menu', clWhite);
+
+end;
+
+
+procedure mode2;
+var
+  txt: String;
+begin
+  currTime := TThread.GetTickCount64;
+  realDT := (currTime - prevTime) / 1000;
+  prevTime := currTime;
+  if (realDT > 0.25) then realDT := 0.25;
+  accumulator := accumulator + realDT;
+  if accumulator >= FRAME_DT then furthestPoint := 0;
+  while accumulator >= (FRAME_DT) do
+  begin
+    SimulationTick(FRAME_DT);
+    //time := time + FRAME_DT;
+    accumulator := accumulator - FRAME_DT;
+  end;
+  playerInputsSim;
+  DrawBones;
+  DrawMuscles;
+  DrawMap;
+  drawCursor;
+  DrawText(1, 3, '[R]eset Camera+Follow     [P]Back     [ARROW_KEYS]Move', clWhite);
+  txt := Format('[AVG Speed] %.2f', [avgSpeed]);
+  DrawText(2, 2, txt, clWhite);
+  txt := Format('[Current Speed] %.2f', [currSpeed]);
+  DrawText(20, 2, txt, clWhite);
+  if bResetCamera then resetCamera(FRAME_DT);
+end;
+
+procedure mode3;
+begin
+  playerInputsSave;
+end;
+
+
+begin
+  InitTerminal;
+  SetLength(pixColor, VW * VH);
+  Init;
+
+  time := 0;
+  prevTime := TThread.GetTickCount64;
+  accumulator := 0;
+
+  while True do
+  begin
+    ClearPixels;
+    ClearOverlay;
+    InputUpdate;
+    DrawBorder;
+
+    GetCursorPos(pt);
+
+    if mode = 1 then
+    begin
+      mode1;
+    end else if mode = 2 then
+    begin
+      mode2;
+    end else if mode = 3 then
+    begin
+      mode3;
+    end;
+
+
+
+
+
+
+    //DrawText(2, 2, 'X: ' + IntToStr(Round(pt.x)) + '  Y: ' + IntToStr(pt.y), clBrYellow);
+    //DrawText(Round(pt.x / 1440 * WIDTH), Round(HEIGHT-(1 - pt.y / 900) * HEIGHT), WideChar($2197), clBrYellow);
+    //2559 1439
+    Draw;
+
+
+    //WriteLn(Round(pt.x), '  ', (pt.y));
+
+
+    //Sleep(10);
+  end;
+end.
