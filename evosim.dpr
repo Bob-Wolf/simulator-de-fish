@@ -1584,6 +1584,12 @@ begin
   DrawLine(sx - 1, sy + 1, sx + 1, sy + 1, color);
 end;
 
+procedure endOfGeneration;
+begin
+  resetSimulation;
+  time := 0;
+end;
+
 procedure mode1;
 begin
   playerInputsDraw;
@@ -1629,9 +1635,10 @@ begin
     //time := time + FRAME_DT;
     accumulator := accumulator - FRAME_DT;
   end;
+  if time > runTime then endOfGeneration;
   playerInputsSim;
   DrawMBones;
-  DrawMuscles;
+  //DrawMuscles;
   DrawMap;
   drawCursor;
   DrawText(1, 3, '[R]eset Camera+Follow     [P]Back     [ARROW_KEYS]Move', clWhite);
@@ -1679,19 +1686,7 @@ begin
       mode3;
     end;
 
-
-
-
-    
-
-    //DrawText(2, 2, 'X: ' + IntToStr(Round(pt.x)) + '  Y: ' + IntToStr(pt.y), clBrYellow);
-    //DrawText(Round(pt.x / 1440 * WIDTH), Round(HEIGHT-(1 - pt.y / 900) * HEIGHT), WideChar($2197), clBrYellow);
-    //2559 1439
     Draw;
-    
-
-    //WriteLn(Round(pt.x), '  ', (pt.y));
-
 
     //Sleep(10);
   end;
