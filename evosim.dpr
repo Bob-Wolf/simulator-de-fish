@@ -65,7 +65,7 @@ const
 
 
 var
-  creatureAMT:Integer;
+  creatureAMT:Integer = 100;
   simulationTime : SIngle;
   tempLoaded : Boolean;
   keyDown:   array[0..255] of Boolean;   // gerade gedrückt?
@@ -109,7 +109,7 @@ pNow: Boolean; //MOVE123 /ROTATE /EDIT PRECISE/ COPY-PASTE /min dist between joi
   pixColor: array of Byte;
   frameBuf: WideString;
   curColor: Byte = 0;
-  level: Integer = 0;
+  level: Integer = 1;
   camx, camy : Single;
   mode : Integer = 1; //0 = MENU //1 = DRAW //2 = SIMLUATION //3 = SAVE
   drwSlct: Integer = 0;
@@ -321,6 +321,40 @@ begin
   PutStr(frameBuf);
 end;
 
+
+{
+  sgBasicCollision(-400, 4, 2000, 4);
+  sgBasicCollision(100, 4, 200, 40);
+  sgBasicCollision(200, 40, 300, 4);
+  sgBasicCollision(300, 4, 400, 40);
+  sgBasicCollision(400, 40, 500, 4);
+}
+procedure DrawMap2();
+var i : Integer;
+txt:String;
+ cx, cy: Integer;
+begin
+  DrawLine(-400, 3, 100, 3, clGreen);
+
+  DrawLine(100, 3, 200, 39, clGreen);
+  DrawLine(200, 39, 300, 3, clGreen);
+  DrawLine(300, 3, 400, 39, clGreen);
+  DrawLine(400, 39, 500, 3, clGreen);
+
+  DrawLine(500, 3, 2000, 3, clGreen);
+  DrawLine(-400, 0, -400, 120, clGray);
+
+  for i:=-399 to 2000 do begin
+  if (i mod 50) = 0 then
+  DrawLine(i, 4, i, 5, clGray);
+  if (i mod 100) = 0 then begin
+  DrawLine(i, 4, i, 8, clGray);
+  txt := Format('%d', [i]);
+  DrawText(Round((i-camx)/2-1), Round(HEIGHT-1-camy/4), txt, clWhite);
+  end;
+  end;
+end;
+
 procedure DrawMap1();
 var i : Integer;
 txt:String;
@@ -348,6 +382,8 @@ procedure DrawMap();
 begin
   case level of
     0: DrawMap1;
+    1: DrawMap2;
+    //2: DrawMap3;
   end;
 
 end;
@@ -682,17 +718,34 @@ begin
   sgBasicCollision(-400, 100, -400, 0);
 end;
 
+procedure LoadMap2();
+begin
+  sgBasicCollision(-400, 4, 2000, 4);
+  sgBasicCollision(100, 4, 200, 40);
+  sgBasicCollision(200, 40, 300, 4);
+  sgBasicCollision(300, 4, 400, 40);
+  sgBasicCollision(400, 40, 500, 4);
+end;
+
+procedure LoadMap3();
+begin
+  sgBasicCollision(-400, 4, 2000, 4);
+  sgBasicCollision(-400, 100, -400, 0);
+end;
+
 procedure Init();
 var
   jointA, jointB, jointC, jointD: Pjoint;
   bone, bone2, bone3: Pbone;
 begin
   creatureAMT := 100;
+  randomize();
 
   velZero.x := 0; velZero.y := 0;
 
   //sgBasicCollision(0, 5, 300, 5);
   if (level = 0) then LoadMap1;
+  if (level = 1) then LoadMap2;
 
   //jointA := sgBasicJoint(160, 57);
   //jointB := sgBasicJoint(160, 77);
@@ -1496,7 +1549,6 @@ begin
   if accumulator >= FRAME_DT then begin
   for i:=0 to High(furthestPoint) do begin
     furthestPoint[i] := mjoints[i][0]^.x;   // Startposition als Referenz
-  avgSpeed[i] := 0;
   currSpeed[i] := 0; end;
   end;
   while accumulator >= (FRAME_DT) do
