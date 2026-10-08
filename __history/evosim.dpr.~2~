@@ -128,7 +128,7 @@ pNow: Boolean; //MOVE123 /ROTATE /EDIT PRECISE/ COPY-PASTE /min dist between joi
   pixColor: array of Byte;
   frameBuf: WideString;
   curColor: Byte = 0;
-  level: Integer = 0;
+  level: Integer = 1;
   camx, camy : Single;
   mode : Integer = 1; //0 = MENU //1 = DRAW //2 = SIMLUATION //3 = SAVE
   drwSlct: Integer = 0;
@@ -785,7 +785,7 @@ var
   jointA, jointB, jointC, jointD: Pjoint;
   bone, bone2, bone3: Pbone;
 begin
-  friction := 0.8;
+  friction := 0.2;
   creatureAMT := 100;
   randomize();
 
@@ -826,31 +826,85 @@ begin
     a, b, n:Single;
     curM:Tmuscle;
 
-    localCurrentVal, localHighscoreVal: Double;
-    localSum: Double;
+    localCurrentVal, localGoalVal: Double;
+    localBestDistance, localDifferenceVal, localEndVal: Double;
+    localCurrentInput, localGoalInput, localSum: Double;
   begin
     Fitnesses[s] := 0;
-    localCurrentVal := currPos[s];
-    localHighscoreVal := highScore[s];
 
     for j := 0 to High(mmuscles) do
     begin
       for i := 0 to High(muscles) do
       begin
-        localSum := Biases[s];
-        localSum := localSum + localCurrentVal * Weights[s][0];
-        localSum := localSum + localHighscoreVal * Weights[s][1];
-
         curM := mmuscles[j][i]^;
 
         n := localSum;
-        DrawText(8, 8, FloatToStr(localSum));
         b := curM.min_length + ((n + 1) * 0.5) * (curM.max_length - curM.min_length);
         a := 1 - Exp(-dt / 0.1);
         mmuscles[j][i]^.target := curM.target + a * (b - curM.target);
 
         { (muscles[i]^.target + curM.max_length - (1 - Exp(-dt / 0.02);) * (curM.max_length - curM.min_length))/7}{curM.max_length - a * (curM.max_length - curM.min_length)};
       end;
+  end;
+
+    localCurrentInput := localCurrentVal / taskSize;
+        localGoalInput    := localGoalVal / taskSize;
+
+        localSum := Biases[s];
+        localSum := localSum + localCurrentInput * Weights[s][0];
+        localSum := localSum + localGoalInput * Weights[s][1];
+
+        if localSum > threshold then
+        begin
+          localCurrentVal := localCurrentVal + 1;
+        end
+        else if localSum < -threshold then
+        begin
+          localCurrentVal := localCurrentVal - 1;
+        end;
+
+          Fitnesses[s] := Fitnesses[s] + ((Abs(localGoalVal - localEndVal)) + rewardBalance * localBestDistance);
+
+
+
+
+
+
+    for a := 0 to taskAmount - 1 do
+    begin
+      localCurrentVal := StartValues[a];
+      localGoalVal    := GoalValues[a];
+      localBestDistance := Abs(localGoalVal - localCurrentVal);
+
+      for j := 1 to iterationAmount do
+      begin
+        localCurrentInput := localCurrentVal / taskSize;
+        localGoalInput    := localGoalVal / taskSize;
+
+        localSum := Biases[i];
+        localSum := localSum + localCurrentInput * Weights[i][0];
+        localSum := localSum + localGoalInput * Weights[i][1];
+
+        if localSum > threshold then
+        begin
+          localCurrentVal := localCurrentVal + 1;
+        end
+        else if localSum < -threshold then
+        begin
+          localCurrentVal := localCurrentVal - 1;
+        end;
+
+        localDifferenceVal := Abs(localGoalVal - localCurrentVal);
+
+        if localDifferenceVal < localBestDistance then
+        begin
+          localBestDistance := localDifferenceVal;
+        end;
+      end;
+
+      localEndVal := localCurrentVal;
+
+      Fitnesses[i] := Fitnesses[i] + ((Abs(localGoalVal - localEndVal)) + rewardBalance * localBestDistance);
     end;
   end);
 end;
@@ -1358,11 +1412,7 @@ begin
   SetLength(currPos, creatureAMT);
   SetLength(highScore, creatureAMT);
 
-  time := 0;
-
   // Neural Network Logic
-
-  generation := 0;
 
   SetLength(Weights, creatureAMT, 3);
   SetLength(Biases, creatureAMT);
@@ -1665,7 +1715,6 @@ begin
 
   for i := 0 to creatureAMT - 1 do
   begin
-    Fitnesses[i] := currPos[i] + rewardBalance * Max(0, currPos[i] - highScore[i]);
     BestFitnesses[i].Fitness := Fitnesses[i];
     BestFitnesses[i].Index := i
   end;

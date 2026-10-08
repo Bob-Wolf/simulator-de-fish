@@ -128,7 +128,7 @@ pNow: Boolean; //MOVE123 /ROTATE /EDIT PRECISE/ COPY-PASTE /min dist between joi
   pixColor: array of Byte;
   frameBuf: WideString;
   curColor: Byte = 0;
-  level: Integer = 0;
+  level: Integer = 1;
   camx, camy : Single;
   mode : Integer = 1; //0 = MENU //1 = DRAW //2 = SIMLUATION //3 = SAVE
   drwSlct: Integer = 0;
@@ -785,7 +785,7 @@ var
   jointA, jointB, jointC, jointD: Pjoint;
   bone, bone2, bone3: Pbone;
 begin
-  friction := 0.8;
+  friction := 0.2;
   creatureAMT := 100;
   randomize();
 
@@ -844,7 +844,6 @@ begin
         curM := mmuscles[j][i]^;
 
         n := localSum;
-        DrawText(8, 8, FloatToStr(localSum));
         b := curM.min_length + ((n + 1) * 0.5) * (curM.max_length - curM.min_length);
         a := 1 - Exp(-dt / 0.1);
         mmuscles[j][i]^.target := curM.target + a * (b - curM.target);
@@ -1358,11 +1357,7 @@ begin
   SetLength(currPos, creatureAMT);
   SetLength(highScore, creatureAMT);
 
-  time := 0;
-
   // Neural Network Logic
-
-  generation := 0;
 
   SetLength(Weights, creatureAMT, 3);
   SetLength(Biases, creatureAMT);
