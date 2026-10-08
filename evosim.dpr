@@ -33,6 +33,12 @@ type
     accx, accy : Single;
     invMass :Single;
   end;
+  
+  TCreature = record
+    joints: array of Pjoint;
+    bones: array of Pbone;     // Index-Mapping nötig
+    muscles: array of Pmuscle;
+  end;
 
   Tcollision = record p1, p2: Tpos; friction: Single; typ: Integer; end;
 
@@ -64,7 +70,8 @@ var
   tempLoaded : Boolean;
   keyDown:   array[0..255] of Boolean;   // gerade gedrückt?
   keyWasDown: array[0..255] of Boolean;
-  avgSpeed, currSpeed, prevPos, currPos, speedAmts : Single;
+  //avgSpeed, currSpeed, prevPos, currPos, speedAmts : Single;
+  avgSpeed, currSpeed, currPos, speedAmts, furthestPoint : array of SIngle;
   curX, curY: Single; 
   firstJoint: Pjoint;
   selectedJoint: Pjoint;
@@ -103,7 +110,7 @@ pNow: Boolean; //MOVE123 /ROTATE /EDIT PRECISE/ COPY-PASTE /min dist between joi
   frameBuf: WideString;
   curColor: Byte = 0;
   level: Integer = 0;
-  camx, camy, furthestPoint : Single;
+  camx, camy : Single;
   mode : Integer = 1; //0 = MENU //1 = DRAW //2 = SIMLUATION //3 = SAVE
   drwSlct: Integer = 0;
   strgzable : array of Integer;
@@ -386,6 +393,21 @@ begin
   end;
 end;
 
+procedure DrawMBones();
+var
+  i,j:Integer;
+begin
+  for j:=0 to High(mbones) do
+  begin
+  for i:=0 to High(bones) do
+  begin
+    DrawLine(Round(mbones[j][i]^.a.x), Round(mbones[j][i]^.a.y), Round(mbones[j][i]^.b.x), Round(mbones[j][i]^.b.y), j{clBrWhite});
+    //DrawLine(Round(mbones[1][i]^.a.x), Round(mbones[1][i]^.a.y), Round(mbones[1][i]^.b.x), Round(mbones[1][i]^.b.y), clGray);
+  end;
+  //WriteLn(RounD(mbones[0][i]^.a.x), '    ', RounD(mbones[0][i]^.a.y));
+  end;
+end;
+
 function BoneMid(b: Pbone): Tpos;
 begin
   Result.x := (b^.a^.x + b^.b^.x) * 0.5;
@@ -403,7 +425,6 @@ begin
     DrawLine(Round(pa.x), Round(pa.y), Round(pb.x), Round(pb.y), clRed);
   end;
 end;
-
 
 
 function IndexOfJoint(j: Pjoint): Integer;
@@ -658,7 +679,7 @@ end;
 procedure LoadMap1();
 begin
   sgBasicCollision(-400, 4, 2000, 4);
-  sgBasicCollision(-400, 0, -400, 100);
+  sgBasicCollision(-400, 100, -400, 0);
 end;
 
 procedure Init();
@@ -666,7 +687,7 @@ var
   jointA, jointB, jointC, jointD: Pjoint;
   bone, bone2, bone3: Pbone;
 begin
-  creatureAMT := 3;
+  creatureAMT := 100;
 
   velZero.x := 0; velZero.y := 0;
 
@@ -696,13 +717,14 @@ end;
 
 procedure Controller(dt: Single);
 var
-  i:Integer;
+  i,j:Integer;
   a, b, n:Single;
   curM:Tmuscle;
 begin
+  for j := 0 to High(mmuscles) do begin
   for i := 0 to High(muscles) do
   begin
-    curM := muscles[i]^;
+    curM := mmuscles[j][i]^;
 
 
     //a := (signal +1) / 2;
@@ -712,20 +734,22 @@ begin
     b := curM.min_length + ((n + 1) * 0.5) * (curM.max_length - curM.min_length);
     a := 1 - Exp(-dt / 0.1);        // dt = Substep-Delta-Zeit!
     //target := curM.target + alpha * (desired - curM.target);
-    muscles[i]^.target := curM.target + a * (b - curM.target);
+    mmuscles[j][i]^.target := curM.target + a * (b - curM.target);
 
  { (muscles[i]^.target + curM.max_length - (1 - Exp(-dt / 0.02);) * (curM.max_length - curM.min_length))/7}{curM.max_length - a * (curM.max_length - curM.min_length)};
+  end;
   end;
 end;
 
 procedure CalcForces();
 var
-  i:Integer;
+  i,j:Integer;
   curJ : Pjoint;
 begin
-  for i := 0 to High(joints) do
+  for i := 0 to High(mjoints) do begin
+  for j := 0 to High(joints) do
   begin
-    curJ := joints[i];
+    curJ := mjoints[i][j];
     curJ^.accx := 0;
     curJ^.accy := 0;
     if (curJ^.invMass > 0) then
@@ -733,6 +757,7 @@ begin
       curJ^.accy := curJ^.accy + gravity;
       //acc = F*invMass
     end;
+  end;
   end;
 end;
 
@@ -773,7 +798,7 @@ begin
           else
             if (spx >= onLine) and (spx + sign <= onLine) then overLine := True;
         end;
-        if XX <> True and YtoXCoordoLine(c.p1, c.p2, spy, onLine) then
+        if (XX <> True) and (YtoXCoordoLine(c.p1, c.p2, spy, onLine)) then
         begin
           if velocity > 0 then
           begin
@@ -831,19 +856,20 @@ end;
 
 procedure Physics(dt: Double);
 var
-  i: Integer;
+  i,j: Integer;
   velx, vely: Single;
   curJ: Pjoint;
 begin
-  for i:=0 to High(joints) do
+  for i:=0 to High(mjoints) do begin
+  for j:=0 to High(joints) do
   begin
-    curJ := joints[i];
+    curJ := mjoints[i][j];
     if curJ^.invMass = 0 then
     begin
       curJ^.px := curJ^.x ; curJ^.py := curJ^.y;
       continue;
     end;
-    curJ^ := joints[i]^;
+    curJ^ := mjoints[i][j]^;
     velx := (curJ^.x - curJ^.px) * dampening;
     vely := (curJ^.y - curJ^.py) * dampening;
     curJ^.px := curJ^.x ; curJ^.py := curJ^.y;
@@ -851,6 +877,7 @@ begin
     curJ^.x := curJ^.x + velx + curJ^.accx * Sqr(dt);
     curJ^.y := curJ^.y + vely + curJ^.accy * Sqr(dt);
     
+  end;
   end;
 end;
 
@@ -922,13 +949,15 @@ end;
 
 procedure Collision();
 var
-  i, k: Integer;
+  i, j, k: Integer;
 begin
-  for i := 0 to High(joints) do
+  for i := 0 to High(mjoints) do begin
+  for j := 0 to High(joints) do
   begin
     for k := 0 to High(collisions) do
-      CollideJoint(joints[i], collisions[k]);
-    if joints[i]^.x > furthestPoint then furthestPoint := joints[i]^.x;
+      CollideJoint(mjoints[i][j], collisions[k]);
+      if mjoints[i][j]^.x > furthestPoint[i] then furthestPoint[i] := mjoints[i][j]^.x;
+    end;
     end;
 end;
 
@@ -980,37 +1009,44 @@ end;
 
 procedure Constrains();
 var
-  i: Integer;
+  i,j: Integer;
   curB: Tbone;
   curM: Tmuscle;
 begin
-  for i:=0 to High(bones) do
+  for i:=0 to High(mbones) do begin
+  for j:=0 to High(bones) do
   begin
-    curB := bones[i]^;
+    curB := mbones[i][j]^;
     solvePair(curB.a, curB.b, curB.rest_length, curB.stiffness);
     //TBD MUSCLES
   end;
-  for i:=0 to High(muscles) do
+  end;
+  for i:=0 to High(mmuscles) do begin
+  for j:=0 to High(muscles) do
   begin
-    curM := muscles[i]^;
+    curM := mmuscles[i][j]^;
     SolveMuscle(curM, curM.target, curM.stiffness);
     //solvePair(curM.a, curM.b, curM.target, curM.stiffness);
     //TBD MUSCLES
+  end;
   end;
 end;
 
 procedure calcSpeeds(dt: Double);
 var
-  i: Integer;
+  i, j: Integer;
   sum: Single;
 begin
+  for j:=0 to High(mjoints) do begin
+
   sum := 0;
   for i := 0 to High(joints) do
-    sum := sum + (joints[i]^.x - joints[i]^.px);
-  currSpeed := sum / dt;                      // px/s, über alle Joints gemittelt
+    sum := sum + (mjoints[j][i]^.x - mjoints[j][i]^.px);
+  currSpeed[j] := sum / dt;                      // px/s, über alle Joints gemittelt
 
-  speedAmts := speedAmts + 1;                 // gezählte Messungen
-  avgSpeed := avgSpeed + (currSpeed - avgSpeed) / speedAmts;   // laufender Mittelwert
+  speedAmts[j] := speedAmts[j] + 1;                 // gezählte Messungen
+  avgSpeed[j] := avgSpeed[j] + (currSpeed[j] - avgSpeed[j]) / speedAmts[j];   // laufender Mittelwert
+  end;
 end;
 
 
@@ -1028,8 +1064,8 @@ begin
     for i := 1 to SOLVER_ITER do
     begin
       Constrains;
-      Collision;
     end;
+      Collision;
     time := time + dt;
   end;
   calcSpeeds(frameDt);
@@ -1041,7 +1077,7 @@ const
 begin
   if not camTargetSet then
   begin
-    camTarget := furthestPoint - 141;
+    camTarget := furthestPoint[0] - 141;
     camTargetSet := True;
   end;
 
@@ -1147,27 +1183,45 @@ begin
   SetLength(mjoints, creatureAMT, a);
   SetLength(mbones, creatureAMT, b);
   SetLength(mmuscles, creatureAMT, c);
+  SetLength(currSpeed, creatureAMT);
+  SetLength(avgSpeed, creatureAMT);
+  SetLength(speedAmts, creatureAMT);
+  SetLength(furthestPoint, creatureAMT);
 end;
+
+
 
 procedure resetSimulation();
 var i, j: Integer;
 begin
-  for i:= 0 to High(mjoints) do begin
-    for j:= 0 to High(joints) do begin
-      mjoints[i][j] := joints[j];
-    end;
+
+  for i := 0 to High(mjoints) do
+  for j := 0 to High(joints) do
+  begin
+    New(mjoints[i][j]);
+    mjoints[i][j]^ := joints[j]^;
+    mjoints[i][j]^.x := joints[j]^.x + (Random(21) - 10) * 0.05;  // kleiner Zufalls-Offset
+    mjoints[i][j]^.y := joints[j]^.y + (Random(21) - 10) * 0.05;
   end;
-  for i:= 0 to High(mbones) do begin
-    for j:= 0 to High(bones) do begin
-      mbones[i][j] := bones[j];
-    end;
+for i := 0 to High(mbones) do
+  for j := 0 to High(bones) do
+  begin
+    New(mbones[i][j]);
+    mbones[i][j]^ := bones[j]^;
+    mbones[i][j]^.a := mjoints[i][IndexOfJoint(bones[j]^.a)];   // Pointer umbiegen!
+    mbones[i][j]^.b := mjoints[i][IndexOfJoint(bones[j]^.b)];
   end;
-  for i:= 0 to High(mmuscles) do begin
-    //WriteLn('new Creature, IDX: ', i);
-    for j:= 0 to High(muscles) do begin
-      mmuscles[i][j] := muscles[j];
-      //WriteLn('new Muscle, IDX: ', j);
-    end;
+for i := 0 to High(mmuscles) do
+  for j := 0 to High(muscles) do
+  begin
+    New(mmuscles[i][j]);
+    mmuscles[i][j]^ := muscles[j]^;
+    mmuscles[i][j]^.a := mbones[i][IndexOfBone(muscles[j]^.a)];  // Pointer umbiegen!
+    mmuscles[i][j]^.b := mbones[i][IndexOfBone(muscles[j]^.b)];
+  end;
+
+  for i:=0 to High(speedAmts) do begin
+    speedAmts[i] := 0;
   end;
   //halt;
 end;
@@ -1179,7 +1233,7 @@ begin
     if tempLoaded <> True then
     SaveCreature(ExePath + 'current.lol');
     //WriteLn('save play!: ', ExePath);
-    speedAmts := 0;
+    //speedAmts := 0;
     initSimulation();
     resetSimulation();
     bResetCamera := True;
@@ -1432,13 +1486,19 @@ end;
 procedure mode2;
 var
   txt: String;
+  i: Integer;
 begin
   currTime := TThread.GetTickCount64;
   realDT := (currTime - prevTime) / 1000;
   prevTime := currTime; 
   if (realDT > 0.25) then realDT := 0.25;
   accumulator := accumulator + realDT;
-  if accumulator >= FRAME_DT then furthestPoint := 0;
+  if accumulator >= FRAME_DT then begin
+  for i:=0 to High(furthestPoint) do begin
+    furthestPoint[i] := mjoints[i][0]^.x;   // Startposition als Referenz
+  avgSpeed[i] := 0;
+  currSpeed[i] := 0; end;
+  end;
   while accumulator >= (FRAME_DT) do
   begin
     SimulationTick(FRAME_DT);
@@ -1446,16 +1506,16 @@ begin
     accumulator := accumulator - FRAME_DT;
   end;
   playerInputsSim;
-  DrawBones;
+  DrawMBones;
   DrawMuscles;
   DrawMap;
   drawCursor;
   DrawText(1, 3, '[R]eset Camera+Follow     [P]Back     [ARROW_KEYS]Move', clWhite);
-  txt := Format('[AVG Speed] %.2f', [avgSpeed]);
+  txt := Format('[AVG Speed] %.2f', [avgSpeed[0]]);
   DrawText(2, 2, txt, clWhite);
-  txt := Format('[Current Speed] %.2f', [currSpeed]);
+  txt := Format('[Current Speed] %.2f', [currSpeed[0]]);
   DrawText(30, 2, txt, clWhite);
-  txt := Format('[Position] %.2f', [furthestPoint]);
+  txt := Format('[Position] %.2f', [furthestPoint[0]]);
   DrawText(60, 2, txt, clWhite);
   if bResetCamera then resetCamera(FRAME_DT);
 end;
