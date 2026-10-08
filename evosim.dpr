@@ -70,8 +70,8 @@ var
   tempLoaded : Boolean;
   keyDown:   array[0..255] of Boolean;   // gerade gedrückt?
   keyWasDown: array[0..255] of Boolean;
-  //avgSpeed, currSpeed, prevPos, currPos, speedAmts : Single;
-  avgSpeed, currSpeed, currPos, speedAmts, furthestPoint : array of SIngle;
+  //avgSpeed, currSpeed, prevPos,, speedAmts : Single;
+  avgSpeed, currSpeed, speedAmts, currPos, highScore : array of SIngle;
   curX, curY: Single; 
   firstJoint: Pjoint;
   selectedJoint: Pjoint;
@@ -1009,7 +1009,7 @@ begin
   begin
     for k := 0 to High(collisions) do
       CollideJoint(mjoints[i][j], collisions[k]);
-      if mjoints[i][j]^.x > furthestPoint[i] then furthestPoint[i] := mjoints[i][j]^.x;
+      if mjoints[i][j]^.x > currPos[i] then currPos[i] := mjoints[i][j]^.x;
     end;
     end;
 end;
@@ -1130,7 +1130,7 @@ const
 begin
   if not camTargetSet then
   begin
-    camTarget := furthestPoint[0] - 141;
+    camTarget := currPos[0] - 141;
     camTargetSet := True;
   end;
 
@@ -1239,7 +1239,8 @@ begin
   SetLength(currSpeed, creatureAMT);
   SetLength(avgSpeed, creatureAMT);
   SetLength(speedAmts, creatureAMT);
-  SetLength(furthestPoint, creatureAMT);
+  SetLength(currPos, creatureAMT);
+  SetLength(highScore, creatureAMT);
 end;
 
 
@@ -1272,10 +1273,10 @@ for i := 0 to High(mmuscles) do
     mmuscles[i][j]^.a := mbones[i][IndexOfBone(muscles[j]^.a)];  // Pointer umbiegen!
     mmuscles[i][j]^.b := mbones[i][IndexOfBone(muscles[j]^.b)];
   end;
-
-  for i:=0 to High(speedAmts) do begin
-    speedAmts[i] := 0;
-  end;
+    for i:=0 to High(speedAmts) do begin
+      speedAmts[i] := 0;
+      currPos[i] := 0;
+    end;
   //halt;
 end;
 
@@ -1289,6 +1290,11 @@ begin
     //speedAmts := 0;
     initSimulation();
     resetSimulation();
+    for i:=0 to High(speedAmts) do begin
+      speedAmts[i] := 0;
+      currPos[i] := 0;
+      highScore[i] := 0;
+    end;
     bResetCamera := True;
 end;
 
@@ -1547,8 +1553,8 @@ begin
   if (realDT > 0.25) then realDT := 0.25;
   accumulator := accumulator + realDT;
   if accumulator >= FRAME_DT then begin
-  for i:=0 to High(furthestPoint) do begin
-    furthestPoint[i] := mjoints[i][0]^.x;   // Startposition als Referenz
+  for i:=0 to High(currPos) do begin
+    currPos[i] := mjoints[i][0]^.x;   // Startposition als Referenz
   currSpeed[i] := 0; end;
   end;
   while accumulator >= (FRAME_DT) do
@@ -1567,7 +1573,7 @@ begin
   DrawText(2, 2, txt, clWhite);
   txt := Format('[Current Speed] %.2f', [currSpeed[0]]);
   DrawText(30, 2, txt, clWhite);
-  txt := Format('[Position] %.2f', [furthestPoint[0]]);
+  txt := Format('[Position] %.2f', [currPos[0]]);
   DrawText(60, 2, txt, clWhite);
   if bResetCamera then resetCamera(FRAME_DT);
 end;
