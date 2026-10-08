@@ -65,6 +65,8 @@ const
 
 
 var
+  map2_width : Single = 140;
+  map2_height : Single = 80;
   creatureAMT:Integer = 100;
   simulationTime : SIngle;
   tempLoaded : Boolean;
@@ -335,13 +337,15 @@ txt:String;
  cx, cy: Integer;
 begin
   DrawLine(-400, 3, 100, 3, clGreen);
+  {for i := 0 to 10 do begin
+    DrawLine(i*200+100, 3, i*200+200, 39, clGreen);
+    DrawLine(i*200+200, 39, i*200+300, 3, clGreen);
+  end;}
+  for i := 0 to 10 do begin
+    DrawLine(Round(i*map2_width+100), 3, Round(i*map2_width+100+map2_width/2), Round(3+map2_height - 1), clGreen);
+    DrawLine(Round(i*map2_width+100+map2_width/2), Round(3+ map2_height - 1), Round(i*map2_width+100+map2_width), 3, clGreen);
+  end;
 
-  DrawLine(100, 3, 200, 39, clGreen);
-  DrawLine(200, 39, 300, 3, clGreen);
-  DrawLine(300, 3, 400, 39, clGreen);
-  DrawLine(400, 39, 500, 3, clGreen);
-
-  DrawLine(500, 3, 2000, 3, clGreen);
   DrawLine(-400, 0, -400, 120, clGray);
 
   for i:=-399 to 2000 do begin
@@ -719,12 +723,14 @@ begin
 end;
 
 procedure LoadMap2();
+var i : Integer;
 begin
+  for i := 0 to 10 do begin
+    sgBasicCollision(i*map2_width+100, 3, i*map2_width+100+map2_width/2, 3+map2_height);
+    sgBasicCollision(i*map2_width+100+map2_width/2, 3+ map2_height, i*map2_width+100+map2_width, 3);
+  end;
   sgBasicCollision(-400, 4, 2000, 4);
-  sgBasicCollision(100, 4, 200, 40);
-  sgBasicCollision(200, 40, 300, 4);
-  sgBasicCollision(300, 4, 400, 40);
-  sgBasicCollision(400, 40, 500, 4);
+  sgBasicCollision(-400, 100, -400, 0);
 end;
 
 procedure LoadMap3();
@@ -957,48 +963,103 @@ end;
 // Prueft einen Joint gegen eine Kollisionslinie (Segment p1->p2).
 // Konvention: Die Linie ist "der Boden"; draussen ist die Seite,
 // auf die die Normale (edge um 90 Grad gedreht, normiert) zeigt.
+// Prueft einen Joint gegen eine Kollisionslinie (Segment p1->p2).
+// Konvention: Draussen ist die Seite, auf die die Normale zeigt.
+// Swept-Test: prueft die Bewegung px->x gegen die Linie (kein Tunneling),
+// deckelt Penetration, behandelt auch die Segment-Endpunkte (Apex!).
 procedure CollideJoint(curJ: Pjoint; const c: Tcollision);
+const
+  SKIN   = 0.5;   // Abstand, auf den der Joint vor der Flaeche gehalten wird
+  MAXPEN = 3.0;   // max. Tiefe, um die rausgeschoben wird
 var
-  ex, ey, rl, len, side, depth, nx, ny: Single;
-  dx, dy, vn, vtn: Single;
+  ex, ey, len, side, prevSide, depth, nx, ny: Single;
+  dx, dy, vn: Single;
   tx, ty: Single;
-  t: Single;
+  t, s: Single;
+  hx, hy: Single;
+  cx2, cy2, ddx, ddy, d: Single;
 begin
-  ex := c.p2.x - c.p1.x;             // Kantenvektor
+  ex := c.p2.x - c.p1.x;
   ey := c.p2.y - c.p1.y;
   len := Sqrt(Sqr(ex) + Sqr(ey));
   if len < 1e-9 then Exit;
 
-  nx := -ey / len;                   // Normale: edge 90 Grad gedreht
+  nx := -ey / len;
   ny :=  ex / len;
 
-  side := (curJ^.x - c.p1.x) * nx    // vorzeichenbehafteter Abstand
-        + (curJ^.y - c.p1.y) * ny;   // zur Ebene (skalarproduct mit n)
+  side     := (curJ^.x  - c.p1.x) * nx + (curJ^.y  - c.p1.y) * ny;
+  prevSide := (curJ^.px - c.p1.x) * nx + (curJ^.py - c.p1.y) * ny;
 
-  if side >= 0 then Exit;            // draussen -> nichts tun
+  if side >= 0 then Exit;   // draussen -> nichts tun
 
-  depth := -side;                    // Eindringtiefe (positiv)
+  // --- Fall A: frisch durch die Linie gelaufen (Swept) ---
+  if (prevSide >= 0) and (side < 0) then
+  begin
+    s := prevSide / (prevSide - side);      // Schnittparameter der Motion
+    hx := curJ^.px + (curJ^.x - curJ^.px) * s;
+    hy := curJ^.py + (curJ^.y - curJ^.py) * s;
+    t := ((hx - c.p1.x) * ex + (hy - c.p1.y) * ey) / (len*len);
+    if (t < 0) or (t > 1) then Exit;        // zwischen den Segmenten durch -> Endpunkte behandeln wir hier nicht
 
-  // Segment-Check: Fusspunkt muss innerhalb p1..p2 liegen
-  // (Projektion des Joints auf die Kante, Parameter t in [0,1])
+    // Auf Kontaktpunkt + skin setzen
+    curJ^.x := hx + nx * SKIN;
+    curJ^.y := hy + ny * SKIN;
+
+    // Velocity-Handling: Normalkomponente auf 0 (RESTITUTION=0), Reibung tangential
+    dx := curJ^.x - curJ^.px;
+    dy := curJ^.y - curJ^.py;
+    vn := dx * nx + dy * ny;
+    tx := dx - vn * nx;
+    ty := dy - vn * ny;
+    curJ^.px := curJ^.x - tx * (1 - c.friction);
+    curJ^.py := curJ^.y - ty * (1 - c.friction);
+    Exit;
+  end;
+
+  // --- Fall B: schon drinnen (tiefe Penetration) ---
+  depth := -side;
+  if depth > MAXPEN then Exit;   // zu tief drin -> nicht teleportieren, ignorieren
+
+  // Segment-Check
   t := ((curJ^.x - c.p1.x) * ex + (curJ^.y - c.p1.y) * ey) / (len*len);
-  if (t < 0) or (t > 1) then Exit;
 
-  // 1) Herausschieben: senkrecht zur Linie
+  if (t < 0) or (t > 1) then
+  begin
+    // Endpunkt-Kollision (Apex, Kantenenden)
+    if t < 0 then begin cx2 := c.p1.x; cy2 := c.p1.y; end
+             else begin cx2 := c.p2.x; cy2 := c.p2.y; end;
+    ddx := curJ^.x - cx2;
+    ddy := curJ^.y - cy2;
+    d := Sqrt(Sqr(ddx) + Sqr(ddy));
+    if (d > 1e-9) and (d < SKIN * 2) then
+    begin
+      // radial aus dem Endpunkt rausdruecken
+      curJ^.x := cx2 + ddx / d * (SKIN * 2);
+      curJ^.y := cy2 + ddy / d * (SKIN * 2);
+      dx := curJ^.x - curJ^.px;
+      dy := curJ^.y - curJ^.py;
+      vn := (dx * ddx + dy * ddy) / d;   // Normalkomponente radial
+      tx := dx - vn * ddx / d;
+      ty := dy - vn * ddy / d;
+      curJ^.px := curJ^.x - tx * (1 - c.friction);
+      curJ^.py := curJ^.y - ty * (1 - c.friction);
+    end;
+    Exit;
+  end;
+
+  // Innerhalb des Segments: senkrecht rausdruecken, max. MAXPEN
   curJ^.x := curJ^.x + nx * depth;
   curJ^.y := curJ^.y + ny * depth;
 
-  // 2) Geschwindigkeit (pos - prev) zerlegen
   dx := curJ^.x - curJ^.px;
   dy := curJ^.y - curJ^.py;
-  vn := dx * nx + dy * ny;           // Normalkomponente
-  tx := dx - vn * nx;                // Tangentialanteil
+  vn := dx * nx + dy * ny;
+  tx := dx - vn * nx;
   ty := dy - vn * ny;
-
-  // 3) Reibung tangential, Restitution normal, zurueck in prev
-  curJ^.px := curJ^.x - tx * (1 - c.friction) - nx * (-vn) * RESTITUTION;
-  curJ^.py := curJ^.y - ty * (1 - c.friction) - ny * (-vn) * RESTITUTION;
+  curJ^.px := curJ^.x - tx * (1 - c.friction);
+  curJ^.py := curJ^.y - ty * (1 - c.friction);
 end;
+
 
 procedure Collision();
 var
@@ -1117,8 +1178,8 @@ begin
     for i := 1 to SOLVER_ITER do
     begin
       Constrains;
-    end;
       Collision;
+    end;
     time := time + dt;
   end;
   calcSpeeds(frameDt);
