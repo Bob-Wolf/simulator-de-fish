@@ -57,7 +57,7 @@ const
   clBrRed   = 9;    clBrGreen = 10;  clBrYellow = 11; clBrBlue = 12;
   clBrMag   = 13;   clBrCyan  = 14;  clBrWhite  = 15; clGray   = 8;
   gravity = -9.81*10;
-  FRICTION = 0.8;
+
   dampening = 0.97;
   FRAME_DT = 2/60;
   SUBSTEPS = 4;
@@ -65,8 +65,13 @@ const
 
 
 var
+  runTime : Single = 10;
+  FRICTION : Single = 0.8;
   map2_width : Single = 140;
   map2_height : Single = 80;
+  map3_width : Single = 140;
+  map3_steps : Single = 5;
+  map3_height : Single = 80;
   creatureAMT:Integer = 100;
   simulationTime : SIngle;
   tempLoaded : Boolean;
@@ -331,19 +336,15 @@ end;
   sgBasicCollision(300, 4, 400, 40);
   sgBasicCollision(400, 40, 500, 4);
 }
-procedure DrawMap2();
+procedure DrawMap2(col: Integer);
 var i : Integer;
 txt:String;
  cx, cy: Integer;
 begin
-  DrawLine(-400, 3, 100, 3, clGreen);
-  {for i := 0 to 10 do begin
-    DrawLine(i*200+100, 3, i*200+200, 39, clGreen);
-    DrawLine(i*200+200, 39, i*200+300, 3, clGreen);
-  end;}
+  DrawLine(-400, 3, 100, 3, col);
   for i := 0 to 10 do begin
-    DrawLine(Round(i*map2_width+100), 3, Round(i*map2_width+100+map2_width/2), Round(3+map2_height - 1), clGreen);
-    DrawLine(Round(i*map2_width+100+map2_width/2), Round(3+ map2_height - 1), Round(i*map2_width+100+map2_width), 3, clGreen);
+    DrawLine(Round(i*map2_width+100), 3, Round(i*map2_width+100+map2_width/2), Round(3+map2_height - 1), col);
+    DrawLine(Round(i*map2_width+100+map2_width/2), Round(3+ map2_height - 1), Round(i*map2_width+100+map2_width), 3, col);
   end;
 
   DrawLine(-400, 0, -400, 120, clGray);
@@ -359,12 +360,12 @@ begin
   end;
 end;
 
-procedure DrawMap1();
+procedure DrawMap1(col:Integer);
 var i : Integer;
 txt:String;
  cx, cy: Integer;
 begin
-  DrawLine(-400, 3, 2000, 3, clGreen);
+  DrawLine(-400, 3, 2000, 3, col);
   DrawLine(-400, 0, -400, 120, clGray);
   for i:=-399 to 2000 do begin
   if (i mod 50) = 0 then
@@ -383,10 +384,13 @@ begin
 end;
 
 procedure DrawMap();
+var ccolor: Integer;
 begin
+ccolor := clGreen;
+  if (friction <= 0.3) then ccolor := clBrBlue;
   case level of
-    0: DrawMap1;
-    1: DrawMap2;
+    0: DrawMap1(ccolor);
+    1: DrawMap2(ccolor);
     //2: DrawMap3;
   end;
 
@@ -744,6 +748,7 @@ var
   jointA, jointB, jointC, jointD: Pjoint;
   bone, bone2, bone3: Pbone;
 begin
+  friction := 0.2;
   creatureAMT := 100;
   randomize();
 
