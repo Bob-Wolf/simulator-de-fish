@@ -59,6 +59,8 @@ const
 
 
 var
+  creatureAMT:Integer;
+  simulationTime : SIngle;
   tempLoaded : Boolean;
   keyDown:   array[0..255] of Boolean;   // gerade gedrückt?
   keyWasDown: array[0..255] of Boolean;
@@ -89,6 +91,9 @@ pNow: Boolean; //MOVE123 /ROTATE /EDIT PRECISE/ COPY-PASTE /min dist between joi
   joints:  array of Pjoint;
   bones:   array of Pbone;
   muscles: array of Pmuscle;
+  mjoints : array of array of Pjoint;
+  mbones : array of array of Pbone;
+  mmuscles : array of array of Pmuscle;
   collisions: array of Tcollision;
   velZero: Tvel;
   iterations, time: Single;
@@ -232,13 +237,15 @@ var
 begin
   for i := 1 to Length(s) do
   begin
-    if (x + i - 1 < WIDTH) and (y < HEIGHT) then
+    if (y >= 0) and (y < HEIGHT) and
+       (x + i - 1 >= 0) and (x + i - 1 < WIDTH) then
     begin
       overlay[(y * WIDTH) + x + i - 1] := s[i];
       overlayCol[(y * WIDTH) + x + i - 1] := color;
     end;
   end;
 end;
+
 
 procedure ClearOverlay;
 begin
@@ -308,9 +315,20 @@ begin
 end;
 
 procedure DrawMap1();
+var i : Integer;
+txt:String;
 begin
-  DrawLine(0, 3, 500, 3, clGreen);
-  DrawLine(0, 4, 0, 100, clGray)
+  DrawLine(-400, 3, 2000, 3, clGreen);
+  DrawLine(-400, 0, -400, 120, clGray);
+  for i:=-399 to 2000 do begin
+  if (i mod 50) = 0 then
+  DrawLine(i, 4, i, 5, clGray);
+  if (i mod 100) = 0 then begin
+  DrawLine(i, 4, i, 8, clGray);
+  txt := Format('%d', [i]);
+  DrawText(Round((i-camx)/2-1), Round(HEIGHT-1-camy/4), txt, clWhite);
+  end;
+  end;
 end;
 
 procedure DrawMap();
@@ -634,6 +652,7 @@ end;
 procedure LoadMap1();
 begin
   sgBasicCollision(-400, 4, 2000, 4);
+  sgBasicCollision(-400, 0, -400, 100);
 end;
 
 procedure Init();
@@ -641,6 +660,8 @@ var
   jointA, jointB, jointC, jointD: Pjoint;
   bone, bone2, bone3: Pbone;
 begin
+  creatureAMT := 3;
+
   velZero.x := 0; velZero.y := 0;
 
   //sgBasicCollision(0, 5, 300, 5);
@@ -995,7 +1016,7 @@ begin
 
   for s := 1 to SUBSTEPS do
   begin
-    Controller(dt);
+    Controller(dt); //ROBERTS SACHE
     CalcForces();
     Physics(dt);
     for i := 1 to SOLVER_ITER do
@@ -1079,13 +1100,82 @@ begin
   Result := not keyDown[k] and keyWasDown[k];
 end;
 
+function CountCreature(const filename: string;
+                       out nj, nb, nm: Integer): Boolean;
+var
+  f: TextFile;
+  i, n: Integer;
+begin
+  Result := False;
+  nj := -1; nb := -1; nm := -1;
+  AssignFile(f, filename);
+  {$I-}
+  Reset(f);
+  if IOResult <> 0 then begin {$I+} Exit; end;
+
+  ReadLn(f, nj);
+  if IOResult = 0 then
+  begin
+    n := nj;
+    for i := 1 to n do ReadLn(f);          // Joint-Zeilen überspringen
+    if IOResult = 0 then
+    begin
+      ReadLn(f, nb);
+      if IOResult = 0 then
+      begin
+        n := nb;
+        for i := 1 to n do ReadLn(f);      // Bone-Zeilen überspringen
+        if IOResult = 0 then ReadLn(f, nm);
+      end;
+    end;
+    CloseFile(f);
+  end;
+  {$I+}
+  Result := nm >= 0;   // True nur, wenn wirklich alle 3 Counts gelesen
+end;
+
+procedure initSimulation();
+var a, b, c : Integer;
+begin
+  CountCreature(ExePath + 'current.lol', a, b, c);
+  SetLength(mjoints, creatureAMT, a);
+  SetLength(mbones, creatureAMT, b);
+  SetLength(mmuscles, creatureAMT, c);
+end;
+
+procedure resetSimulation();
+var i, j: Integer;
+begin
+  for i:= 0 to High(mjoints) do begin
+    for j:= 0 to High(joints) do begin
+      mjoints[i][j] := joints[j];
+    end;
+  end;
+  for i:= 0 to High(mbones) do begin
+    for j:= 0 to High(bones) do begin
+      mbones[i][j] := bones[j];
+    end;
+  end;
+  for i:= 0 to High(mmuscles) do begin
+    //WriteLn('new Creature, IDX: ', i);
+    for j:= 0 to High(muscles) do begin
+      mmuscles[i][j] := muscles[j];
+      //WriteLn('new Muscle, IDX: ', j);
+    end;
+  end;
+  //halt;
+end;
+
 procedure switchToSim();
+var i:Integer;
 begin
     mode := 2;
     if tempLoaded <> True then
-    SaveCreature(ExePath + 'current.lol'); //'LIFE OF LIFE' FILE
+    SaveCreature(ExePath + 'current.lol');
     //WriteLn('save play!: ', ExePath);
     speedAmts := 0;
+    initSimulation();
+    resetSimulation();
     bResetCamera := True;
 end;
 
@@ -1126,39 +1216,7 @@ begin
   end;
 end;
 
-function CountCreature(const filename: string;
-                       out nj, nb, nm: Integer): Boolean;
-var
-  f: TextFile;
-  i, n: Integer;
-begin
-  Result := False;
-  nj := -1; nb := -1; nm := -1;
-  AssignFile(f, filename);
-  {$I-}
-  Reset(f);
-  if IOResult <> 0 then begin {$I+} Exit; end;
 
-  ReadLn(f, nj);
-  if IOResult = 0 then
-  begin
-    n := nj;
-    for i := 1 to n do ReadLn(f);          // Joint-Zeilen überspringen
-    if IOResult = 0 then
-    begin
-      ReadLn(f, nb);
-      if IOResult = 0 then
-      begin
-        n := nb;
-        for i := 1 to n do ReadLn(f);      // Bone-Zeilen überspringen
-        if IOResult = 0 then ReadLn(f, nm);
-      end;
-    end;
-    CloseFile(f);
-  end;
-  {$I+}
-  Result := nm >= 0;   // True nur, wenn wirklich alle 3 Counts gelesen
-end;
 
 
 
@@ -1195,7 +1253,7 @@ begin
   DrawText(2, 2, '[TAB]Draw Menu     [S]ave     [L]oad     [T]emporary Load', clWhite);
   
   if KeyPressed(Ord('S'))  then begin SaveCreature(Format('%s%dcreature.lol', [ExePath, save_select]));  end;//GIG end;
-  if (KeyPressed(Ord('L'))) or (KeyPressed(VK_ENTER)) then begin LoadCreature(Format('%s%dcreature.lol', [ExePath, save_select])); switchToDraw();end;
+  if (KeyPressed(Ord('L'))) then begin LoadCreature(Format('%s%dcreature.lol', [ExePath, save_select])); switchToDraw();end;
   if KeyPressed(Ord('T')) then begin SaveCreature(ExePath + 'current.lol'); LoadCreature(Format('%s%dcreature.lol', [ExePath, save_select])); switchToDraw();tempLoaded := True; end;
   if KeyPressed(VK_UP)  then begin save_select := save_select - 1; if save_select <0 then save_select := 9; end;
   if KeyPressed(VK_DOWN)    then begin save_select := (save_select + 1) mod 10; end;
@@ -1391,6 +1449,8 @@ begin
   DrawText(2, 2, txt, clWhite);
   txt := Format('[Current Speed] %.2f', [currSpeed]);
   DrawText(20, 2, txt, clWhite);
+  txt := Format('[Position] %.2f', [furthestPoint]);
+  DrawText(40, 2, txt, clWhite);
   if bResetCamera then resetCamera(FRAME_DT);
 end;
 
