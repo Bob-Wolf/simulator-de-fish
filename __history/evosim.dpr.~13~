@@ -68,7 +68,7 @@ const
 
   clBrRed   = 9;    clBrGreen = 10;  clBrYellow = 11; clBrBlue = 12;
   clBrMag   = 13;   clBrCyan  = 14;  clBrWhite  = 15; clGray   = 8;
-  gravity = -9.81*10;
+  gravity = -9.81*20;
 
   dampening = 0.97;
   FRAME_DT = 2/60;
@@ -90,8 +90,9 @@ var
   keyDown:   array[0..255] of Boolean;   // gerade gedrückt?
   keyWasDown: array[0..255] of Boolean;
   //avgSpeed, currSpeed, prevPos,, speedAmts : Single;
-  avgSpeed, currSpeed, speedAmts, currPos, highScore : array of SIngle;
-  curX, curY: Single; 
+  avgSpeed, currSpeed, speedAmts, currPos : array of SIngle;
+  globalHighScore: Single = 0;
+  curX, curY: Single;
   firstJoint: Pjoint;
   selectedJoint: Pjoint;
   firstBone: Pbone;
@@ -785,7 +786,7 @@ var
   jointA, jointB, jointC, jointD: Pjoint;
   bone, bone2, bone3: Pbone;
 begin
-  friction := 0.2;
+  friction := 0.8;
   creatureAMT := 100;
   randomize();
 
@@ -816,6 +817,17 @@ begin
   //WriteLn(Round(getAngleOffBone(bone)));
 end;
 
+
+function getMuscleValue(m: Pmuscle): Single;
+var
+  a : Single;
+begin
+  a := ((m^.target-m^.min_length)/(m^.max_length-m^.min_length)) * 2 - 1;
+
+  Result := a;
+end;
+
+
 procedure Controller(dt: Single);
 var
   s: Integer;
@@ -826,30 +838,35 @@ begin
     a, b, n:Single;
     curM:Tmuscle;
 
-    localCurrentVal, localHighscoreVal: Double;
+    localCurrentPosVal, localCurrentSpeedVal: Double;
     localSum: Double;
   begin
     Fitnesses[s] := 0;
-    localCurrentVal := currPos[s];
-    localHighscoreVal := highScore[s];
+    localCurrentPosVal   := currPos[s] / 100.0;
+    localCurrentSpeedVal := currSpeed[s] / 20.0;
 
-    for j := 0 to High(mmuscles) do
+    localCurrentPosVal := Max(-1.0, Min(1.0, localCurrentPosVal));
+    localCurrentSpeedVal := Max(-1.0, Min(1.0, localCurrentSpeedVal));
+
+    for i := 0 to High(muscles) do
     begin
-      for i := 0 to High(muscles) do
-      begin
         localSum := Biases[s];
-        localSum := localSum + localCurrentVal * Weights[s][0];
-        localSum := localSum + localHighscoreVal * Weights[s][1];
+        localSum := localSum + localCurrentPosVal * Weights[s][0];
+        localSum := localSum + localCurrentSpeedVal * Weights[s][1];
+        localSum := localSum + getMuscleValue(mmuscles[s][i]) * Weights[s][2];
 
-        curM := mmuscles[j][i]^;
+        curM := mmuscles[s][i]^;
 
-        n := localSum;
-        b := curM.min_length + ((n + 1) * 0.5) * (curM.max_length - curM.min_length);
+        n := Tanh(localSum);
+
+        b := curM.min_length +
+             ((n + 1) * 0.5) *
+             (curM.max_length - curM.min_length);
+
         a := 1 - Exp(-dt / 0.1);
-        mmuscles[j][i]^.target := curM.target + a * (b - curM.target);
 
-        { (muscles[i]^.target + curM.max_length - (1 - Exp(-dt / 0.02);) * (curM.max_length - curM.min_length))/7}{curM.max_length - a * (curM.max_length - curM.min_length)};
-      end;
+        mmuscles[s][i]^.target :=
+          curM.target + a * (b - curM.target);
     end;
   end);
 end;
@@ -1286,15 +1303,6 @@ begin
   end;
 end;
 
-function getMuscleValue(m: Pmuscle): Single; 
-var
-  a : Single;
-begin
-  a := ((m^.target-m^.min_length)/(m^.max_length-m^.min_length)) * 2 - 1;
-
-  Result := a;
-end;
-
 function Key(k: Integer): Boolean; inline;   // gehalten
 begin
   Result := keyDown[k];
@@ -1355,9 +1363,12 @@ begin
   SetLength(avgSpeed, creatureAMT);
   SetLength(speedAmts, creatureAMT);
   SetLength(currPos, creatureAMT);
-  SetLength(highScore, creatureAMT);
+
+  time := 0;
 
   // Neural Network Logic
+
+  generation := 0;
 
   SetLength(Weights, creatureAMT, 3);
   SetLength(Biases, creatureAMT);
@@ -1370,6 +1381,7 @@ begin
   begin
     Weights[i][0] := (Random * 2.0) - 1.0;
     Weights[i][1] := (Random * 2.0) - 1.0;
+    Weights[i][2] := (Random * 2.0) - 1.0;
 
     biases[i] := (Random * 2.0) - 1.0;
   end;
@@ -1427,7 +1439,7 @@ begin
     for i:=0 to High(speedAmts) do begin
       speedAmts[i] := 0;
       currPos[i] := 0;
-      highScore[i] := 0;
+      globalHighScore := 0;
     end;
     bResetCamera := True;
 end;
@@ -1655,21 +1667,35 @@ end;
 procedure endOfGeneration;
 var
   i, j: Integer;
+  bonus: Double;
 begin
   generation := generation + 1;
 
   for i := 0 to creatureAMT - 1 do
   begin
-    Fitnesses[i] := currPos[i] + rewardBalance * Max(0, currPos[i] - highScore[i]);
+    Fitnesses[i] := currPos[i];
+
+    if currPos[i] > globalHighScore then
+    begin
+      bonus := rewardBalance * (currPos[i] - globalHighScore);
+      Fitnesses[i] := Fitnesses[i] + bonus;
+    end;
+
     BestFitnesses[i].Fitness := Fitnesses[i];
-    BestFitnesses[i].Index := i
+    BestFitnesses[i].Index := i;
+  end;
+
+  for i := 0 to creatureAMT - 1 do
+  begin
+    if currPos[i] > globalHighScore then
+      globalHighScore := currPos[i];
   end;
 
   for i := 0 to creatureAMT - 1 - 1 do
   begin
     for j := 0 to creatureAMT - 1 - 1 - i do
     begin
-      if BestFitnesses[j].Fitness > BestFitnesses[j + 1].Fitness then
+      if BestFitnesses[j].Fitness < BestFitnesses[j + 1].Fitness then
       begin
         tempFitnessInfo := BestFitnesses[j];
         BestFitnesses[j] := BestFitnesses[j + 1];
@@ -1694,6 +1720,8 @@ begin
     NewWeights[i][1] :=
       Weights[BestFitnesses[i].Index][1];
 
+    NewWeights[i][2] := Weights[BestFitnesses[i].Index][2];
+
     NewBiases[i] :=
       Biases[BestFitnesses[i].Index];
   end;
@@ -1708,6 +1736,10 @@ begin
 
     NewWeights[childIndex][1] :=
       NewWeights[parentIndex][1] +
+      (Random * (mutationSize * 2)) - mutationSize;
+
+    NewWeights[childIndex][2] :=
+      NewWeights[parentIndex][2] +
       (Random * (mutationSize * 2)) - mutationSize;
 
     NewBiases[childIndex] :=

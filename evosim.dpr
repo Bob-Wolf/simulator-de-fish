@@ -2,17 +2,17 @@
   {$MODE DELPHI}
   {$H+}
 {$ENDIF}
- 
+
 program evolve;
- 
+
 uses
   {$IFDEF FPC}
     Windows,
   {$ELSE}
     Winapi.Windows,
+    Threading,
   {$ENDIF}
   Math,
-  Threading,
   SysUtils,
   Classes;
 
@@ -34,7 +34,7 @@ type
     accx, accy : Single;
     invMass :Single;
   end;
-  
+
   TCreature = record
     joints: array of Pjoint;
     bones: array of Pbone;     // Index-Mapping nötig
@@ -68,7 +68,7 @@ const
 
   clBrRed   = 9;    clBrGreen = 10;  clBrYellow = 11; clBrBlue = 12;
   clBrMag   = 13;   clBrCyan  = 14;  clBrWhite  = 15; clGray   = 8;
-  gravity = -9.81*20;
+  gravity = -9.81*10;
 
   dampening = 0.97;
   FRAME_DT = 2/60;
@@ -125,11 +125,11 @@ pNow: Boolean; //MOVE123 /ROTATE /EDIT PRECISE/ COPY-PASTE /min dist between joi
   velZero: Tvel;
   iterations, time: Single;
   accumulator: Double;
-  
+
   pixColor: array of Byte;
   frameBuf: WideString;
   curColor: Byte = 0;
-  level: Integer = 1;
+  level: Integer = 0;
   camx, camy : Single;
   mode : Integer = 1; //0 = MENU //1 = DRAW //2 = SIMLUATION //3 = SAVE
   drwSlct: Integer = 0;
@@ -279,9 +279,9 @@ end;
 
 var
   ov: WideChar;          // <-- fehlt
-  
+
   overlay: array of WideChar;   // WIDTH * HEIGHT, 0 = leer
-  overlayCol: array of Byte;    // 
+  overlayCol: array of Byte;    //
 
 procedure DrawText(x, y: Integer; const s: WideString; color: Byte = clBrWhite);
 var
@@ -698,11 +698,11 @@ end;
 procedure DeleteLastJoint;
 begin
   if Length(joints) = 0 then Exit;
-  Dispose(joints[High(joints)]);          
-  SetLength(joints, Length(joints) - 1);  
-  
-  // Dispose(strgzable[High(strgzable)]);          
-  SetLength(strgzable, Length(strgzable) - 1);  
+  Dispose(joints[High(joints)]);
+  SetLength(joints, Length(joints) - 1);
+
+  // Dispose(strgzable[High(strgzable)]);
+  SetLength(strgzable, Length(strgzable) - 1);
 end;
 
 procedure DeleteLastBone;
@@ -711,8 +711,8 @@ begin
   Dispose(bones[High(bones)]);
   SetLength(bones, Length(bones) - 1);
 
-  // Dispose(strgzable[High(strgzable)]);          
-  SetLength(strgzable, Length(strgzable) - 1);  
+  // Dispose(strgzable[High(strgzable)]);
+  SetLength(strgzable, Length(strgzable) - 1);
 end;
 
 procedure DeleteLastMuscle;
@@ -721,8 +721,8 @@ begin
   Dispose(muscles[High(muscles)]);
   SetLength(muscles, Length(muscles) - 1);
 
-  // Dispose(strgzable[High(strgzable)]);          
-  SetLength(strgzable, Length(strgzable) - 1);  
+  // Dispose(strgzable[High(strgzable)]);
+  SetLength(strgzable, Length(strgzable) - 1);
 end;
 
 
@@ -827,7 +827,57 @@ begin
   Result := a;
 end;
 
+{$IFDEF FPC}
+procedure Controller(dt: Single);
+var
+  s, i: Integer;
+  a, b, n: Single;
+  curM: Tmuscle;
+  localCurrentPosVal: Double;
+  localCurrentSpeedVal: Double;
+  localSum: Double;
+begin
 
+  for s := 0 to creatureAMT - 1 do
+  begin
+    Fitnesses[s] := 0;
+
+    localCurrentPosVal   := currPos[s] / 100.0;
+    localCurrentSpeedVal := currSpeed[s] / 20.0;
+
+    localCurrentPosVal := Max(-1.0, Min(1.0, localCurrentPosVal));
+    localCurrentSpeedVal := Max(-1.0, Min(1.0, localCurrentSpeedVal));
+
+    for i := 0 to High(mmuscles[s]) do
+    begin
+      localSum := Biases[s];
+
+      localSum := localSum +
+                  localCurrentPosVal * Weights[s][0];
+
+      localSum := localSum +
+                  localCurrentSpeedVal * Weights[s][1];
+
+      localSum := localSum +
+                  getMuscleValue(mmuscles[s][i]) *
+                  Weights[s][2];
+
+      curM := mmuscles[s][i]^;
+
+      n := Tanh(localSum);
+
+      b := curM.min_length +
+           ((n + 1) * 0.5) *
+           (curM.max_length - curM.min_length);
+
+      a := 1 - Exp(-dt / 0.1);
+
+      mmuscles[s][i]^.target :=
+        curM.target + a * (b - curM.target);
+    end;
+  end;
+end;
+{$ELSE}
 procedure Controller(dt: Single);
 var
   s: Integer;
@@ -870,6 +920,7 @@ begin
     end;
   end);
 end;
+{$ENDIF}
 
 procedure CalcForces();
 var
@@ -1006,7 +1057,7 @@ begin
 
     curJ^.x := curJ^.x + velx + curJ^.accx * Sqr(dt);
     curJ^.y := curJ^.y + vely + curJ^.accy * Sqr(dt);
-    
+
   end;
   end;
 end;
@@ -1176,7 +1227,7 @@ begin
   len := Sqrt(Sqr(dx) + Sqr(dy));
   if len < 0.0001 then Exit;
   diff := (len - target) / len;
-  corr := diff * stiffness * 0.5;   
+  corr := diff * stiffness * 0.5;
 
   // Bone a: Mitte rueckt Richtung b (bzw. weg, je nach Vorzeichen)
   m.a^.a^.x := m.a^.a^.x - dx * corr;
@@ -1292,7 +1343,7 @@ begin
 end;
 
 
-procedure InputUpdate; 
+procedure InputUpdate;
 var
   k: Integer;
 begin
@@ -1487,7 +1538,7 @@ end;
 
 
 procedure playerInputsSave;
-var 
+var
   i:Integer;
   txt:WideString;
     f: TextFile;
@@ -1499,7 +1550,7 @@ begin
     txt := Format('%d', [i]);
     if (i = save_select) then DrawText(8, i+10, txt, clWhite)
     else DrawText(8, i+10, txt, clGray);
-    
+
     AssignFile(f, Format('%s%dcreature.lol', [ExePath, i]));
     //WriteLn(Format('%s%dcreature.lol', [ExePath, i]));
     {$I-}
@@ -1516,7 +1567,7 @@ begin
   end;
   //txt := Format('%d', [save_select]);
   DrawText(2, 2, '[TAB]Draw Menu     [S]ave     [L]oad     [T]emporary Load', clWhite);
-  
+
   if KeyPressed(Ord('S'))  then begin SaveCreature(Format('%s%dcreature.lol', [ExePath, save_select]));  end;//GIG end;
   if (KeyPressed(Ord('L'))) then begin LoadCreature(Format('%s%dcreature.lol', [ExePath, save_select])); switchToDraw();end;
   if KeyPressed(Ord('T')) then begin SaveCreature(ExePath + 'current.lol'); LoadCreature(Format('%s%dcreature.lol', [ExePath, save_select])); switchToDraw();tempLoaded := True; end;
@@ -1783,7 +1834,7 @@ begin
   end;
   DrawText(1, 3, '[R]eset Camera     [Space]Place     [A/D]Switch Obj     [Z]Undo     [P]lay     [Backspace]Del Selected Obj     [Entf]Reset', clWhite);
   DrawText(1, 4, '[TAB]Save Menu', clWhite);
-  
+
 end;
 
 
@@ -1794,7 +1845,7 @@ var
 begin
   currTime := TThread.GetTickCount64;
   realDT := (currTime - prevTime) / 1000;
-  prevTime := currTime; 
+  prevTime := currTime;
   if (realDT > 0.25) then realDT := 0.25;
   accumulator := accumulator + realDT;
   if accumulator >= FRAME_DT then begin
@@ -1847,7 +1898,7 @@ begin
     DrawBorder;
 
     GetCursorPos(pt);
-    
+
     if mode = 1 then
     begin
       mode1;
