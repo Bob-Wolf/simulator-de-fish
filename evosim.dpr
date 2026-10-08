@@ -2,15 +2,15 @@
   {$MODE DELPHI}
   {$H+}
 {$ENDIF}
-
-program evosim;
-
+ 
+program evolve;
+ 
 uses
   {$IFDEF FPC}
-  Windows,
+    Windows,
   {$ELSE}
-  Winapi.Windows,
-  {$ENDIF }
+    Winapi.Windows,
+  {$ENDIF}
   Math,
   SysUtils,
   Classes;
@@ -59,10 +59,10 @@ const
 
 
 var
-  keyDown:   array[0..255] of Boolean;   // gerade gedrückt?
+  keyDown:   array[0..255] of Boolean;   // gerade gedrÃ¼ckt?
   keyWasDown: array[0..255] of Boolean;
   avgSpeed, currSpeed, prevPos, currPos, speedAmts : Single;
-  curX, curY: Single;
+  curX, curY: Single; 
   firstJoint: Pjoint;
   selectedJoint: Pjoint;
   firstBone: Pbone;
@@ -92,7 +92,7 @@ pNow: Boolean; //MOVE123 /ROTATE /EDIT PRECISE/ COPY-PASTE /min dist between joi
   velZero: Tvel;
   iterations, time: Single;
   accumulator: Double;
-
+  
   pixColor: array of Byte;
   frameBuf: WideString;
   curColor: Byte = 0;
@@ -221,9 +221,9 @@ end;
 
 var
   ov: WideChar;          // <-- fehlt
-
+  
   overlay: array of WideChar;   // WIDTH * HEIGHT, 0 = leer
-  overlayCol: array of Byte;    //
+  overlayCol: array of Byte;    // 
 
 procedure DrawText(x, y: Integer; const s: WideString; color: Byte = clBrWhite);
 var
@@ -440,9 +440,9 @@ begin
 
   CloseFile(f);
 
-  WriteLn('Gespeichert: ', Length(joints), ' joints, ',
-          Length(bones), ' bones, ', Length(muscles), ' muscles -> ',
-          ExpandFileName(filename));
+  //WriteLn('Gespeichert: ', Length(joints), ' joints, ',
+  //        Length(bones), ' bones, ', Length(muscles), ' muscles -> ',
+  //        ExpandFileName(filename));
 end;
 
 procedure ClearCreature;
@@ -570,11 +570,11 @@ end;
 procedure DeleteLastJoint;
 begin
   if Length(joints) = 0 then Exit;
-  Dispose(joints[High(joints)]);
-  SetLength(joints, Length(joints) - 1);
-
-  // Dispose(strgzable[High(strgzable)]);
-  SetLength(strgzable, Length(strgzable) - 1);
+  Dispose(joints[High(joints)]);          
+  SetLength(joints, Length(joints) - 1);  
+  
+  // Dispose(strgzable[High(strgzable)]);          
+  SetLength(strgzable, Length(strgzable) - 1);  
 end;
 
 procedure DeleteLastBone;
@@ -583,8 +583,8 @@ begin
   Dispose(bones[High(bones)]);
   SetLength(bones, Length(bones) - 1);
 
-  // Dispose(strgzable[High(strgzable)]);
-  SetLength(strgzable, Length(strgzable) - 1);
+  // Dispose(strgzable[High(strgzable)]);          
+  SetLength(strgzable, Length(strgzable) - 1);  
 end;
 
 procedure DeleteLastMuscle;
@@ -593,8 +593,8 @@ begin
   Dispose(muscles[High(muscles)]);
   SetLength(muscles, Length(muscles) - 1);
 
-  // Dispose(strgzable[High(strgzable)]);
-  SetLength(strgzable, Length(strgzable) - 1);
+  // Dispose(strgzable[High(strgzable)]);          
+  SetLength(strgzable, Length(strgzable) - 1);  
 end;
 
 
@@ -669,17 +669,18 @@ end;
 procedure Controller(dt: Single);
 var
   i:Integer;
-  signal, a, b, n:Single;
+  a, b, n:Single;
   curM:Tmuscle;
 begin
   for i := 0 to High(muscles) do
   begin
     curM := muscles[i]^;
-    signal := Sin(time * curM.freq * 2*Pi + curM.phase);
+
+
     //a := (signal +1) / 2;
-    //call an netzwerk => vvvvv ( -1 — 1)
-    //n ist hier der output des netzwerks für den einen Muskel ( -1 — 1)
-    n := Random(1 - 0 + 1);
+    //call an netzwerk => vvvvv ( -1 â€” 1)
+    //n ist hier der output des netzwerks fÃ¼r den einen Muskel ( -1 â€” 1)
+    n := Random(1 - 0 + 1); 
     b := curM.min_length + ((n + 1) * 0.5) * (curM.max_length - curM.min_length);
     a := 1 - Exp(-dt / 0.1);        // dt = Substep-Delta-Zeit!
     //target := curM.target + alpha * (desired - curM.target);
@@ -821,7 +822,7 @@ begin
 
     curJ^.x := curJ^.x + velx + curJ^.accx * Sqr(dt);
     curJ^.y := curJ^.y + vely + curJ^.accy * Sqr(dt);
-
+    
   end;
 end;
 
@@ -933,7 +934,7 @@ begin
   len := Sqrt(Sqr(dx) + Sqr(dy));
   if len < 0.0001 then Exit;
   diff := (len - target) / len;
-  corr := diff * stiffness * 0.5;
+  corr := diff * stiffness * 0.5;   
 
   // Bone a: Mitte rueckt Richtung b (bzw. weg, je nach Vorzeichen)
   m.a^.a^.x := m.a^.a^.x - dx * corr;
@@ -978,9 +979,9 @@ begin
   sum := 0;
   for i := 0 to High(joints) do
     sum := sum + (joints[i]^.x - joints[i]^.px);
-  currSpeed := sum / dt;                      // px/s, über alle Joints gemittelt
+  currSpeed := sum / dt;                      // px/s, Ã¼ber alle Joints gemittelt
 
-  speedAmts := speedAmts + 1;                 // gezählte Messungen
+  speedAmts := speedAmts + 1;                 // gezÃ¤hlte Messungen
   avgSpeed := avgSpeed + (currSpeed - avgSpeed) / speedAmts;   // laufender Mittelwert
 end;
 
@@ -1042,7 +1043,7 @@ begin
 end;
 
 
-procedure InputUpdate;
+procedure InputUpdate; 
 var
   k: Integer;
 begin
@@ -1053,7 +1054,7 @@ begin
   end;
 end;
 
-function getMuscleValue(m: Pmuscle): Single;
+function getMuscleValue(m: Pmuscle): Single; 
 var
   a : Single;
 begin
@@ -1067,7 +1068,7 @@ begin
   Result := keyDown[k];
 end;
 
-function KeyPressed(k: Integer): Boolean; inline;  // frisch gedrückt (Edge)
+function KeyPressed(k: Integer): Boolean; inline;  // frisch gedrÃ¼ckt (Edge)
 begin
   Result := keyDown[k] and not keyWasDown[k];
 end;
@@ -1075,6 +1076,32 @@ end;
 function KeyReleased(k: Integer): Boolean; inline; // frisch losgelassen
 begin
   Result := not keyDown[k] and keyWasDown[k];
+end;
+
+procedure switchToSim();
+begin
+    mode := 2;
+    SaveCreature(ExePath + 'current.lol');
+    //WriteLn('save play!: ', ExePath);
+    speedAmts := 0;
+    bResetCamera := True;
+end;
+
+procedure switchToDraw(fromSim: Boolean = False);
+begin
+  mode := 1;
+  if fromSim then begin
+    bResetCameraDrw := True;
+    LoadCreature(ExePath + 'current.lol');
+    //WriteLn('load play!: ', ExePath);
+  end;
+end;
+
+procedure switchToSave();
+begin
+    mode := 3;
+    save_select := 0;
+    //SaveCreature(ExePath + 'creature.lol');
 end;
 
 procedure playerInputsSim;
@@ -1089,34 +1116,44 @@ begin
 
   if KeyPressed(Ord('R')) then bResetCamera := True;
 
-  // Zurück in den Zeichenmodus
+  // ZurÃ¼ck in den Zeichenmodus
   if (KeyPressed(Ord('P'))) then
   begin
-    mode := 1;
-    bResetCameraDrw := True;
-    LoadCreature(ExePath + 'current.lol');
-    WriteLn('load play!: ', ExePath);
+    switchToDraw(True);
   end;
 end;
 
 procedure playerInputsSave;
-var
+var 
   i:Integer;
   txt:WideString;
+    f: TextFile;
+    n:Integer;
 begin
   for i:=0 to 9 do
   begin
     txt := Format('%d', [i]);
-    DrawText(8, i+10, txt, clGray);
+    if (i = save_select) then DrawText(8, i+10, txt, clWhite)
+    else DrawText(8, i+10, txt, clGray);
+    
+    AssignFile(f, Format('ExePath%dcreature.lol', [i]));
+    //WriteLn(Format('ExePath%dcreature.lol', [i]));
+    {$I-}
+    Reset(f);
+    {$I+}
+    if IOResult <> 0 then begin continue; end; ////DBDBDBDBD
+    txt := Format('exists!: %d', [i]);
+    if (i = save_select) then DrawText(14, i+10, txt, clWhite)
+    else DrawText(14, i+10, txt, clGray);
   end;
-  txt := Format('%d', [save_select]);
-  DrawText(8, save_select+10, txt, clWhite);
-
-  if Key(VK_LEFT)  then begin camx := camx - 0.5; bResetCameraDrw := False; end;
+  //txt := Format('%d', [save_select]);
+  //DrawText(8, save_select+10, txt, clWhite);
+  
+  if KeyPressed(Ord('S'))  then begin SaveCreature(Format('ExePath%dcreature.lol', [save_select])); end;//GIG end;
   if Key(VK_RIGHT) then begin camx := camx + 0.5; bResetCameraDrw := False; end;
-  if KeyPressed(VK_DOWN)  then begin save_select := save_select - 1; if save_select <0 then save_select := 9; end;
-  if KeyPressed(VK_UP)    then begin save_select := (save_select + 1) mod 10; end;
-  if KeyPressed(Ord('1')) then mode := 1;
+  if KeyPressed(VK_UP)  then begin save_select := save_select - 1; if save_select <0 then save_select := 9; end;
+  if KeyPressed(VK_DOWN)    then begin save_select := (save_select + 1) mod 10; end;
+  if KeyPressed(Ord('1')) then switchToDraw();
 end;
 
 procedure playerInputsDraw;
@@ -1128,7 +1165,7 @@ begin
   snappedCursor := False;
   if KeyPressed(VK_ESCAPE) then Halt;
 
-  // Kamera-Reset-Taste (R): kein Edge nötig, aber frisch ist okay
+  // Kamera-Reset-Taste (R): kein Edge nÃ¶tig, aber frisch ist okay
   if KeyPressed(Ord('R')) then bResetCameraDrw := True;
 
   // Cursor-Screen-Position und Snapping
@@ -1170,9 +1207,7 @@ begin
   // ---- Save / Load ----
   if KeyPressed(Ord('1')) then
   begin
-    mode := 3;
-    save_select := 0;
-    //SaveCreature(ExePath + 'creature.lol');
+    switchToSave();
     //WriteLn('save!: ', ExePath);
   end;
 
@@ -1185,11 +1220,7 @@ begin
   // ---- Play-Modus (P) ----
   if (KeyPressed(Ord('P'))) and (Length(strgzable) <> 0) then
   begin
-    mode := 2;
-    //SaveCreature(ExePath + 'current.lol');
-    WriteLn('save play!: ', ExePath);
-    speedAmts := 0;
-    bResetCamera := True;
+    switchToSim();
   end;
 
   // ---- Kamera (gehalten, kein Edge) ----
@@ -1202,7 +1233,7 @@ begin
   if KeyPressed(Ord(' ')) then
   begin
     case drwSlct of
-      0: sgBasicJoint(pt.x / 1440 * VW, VH - pt.y / 900 * VH);  // TBD: kein Joint in der Nähe
+      0: sgBasicJoint(pt.x / 1440 * VW, VH - pt.y / 900 * VH);  // TBD: kein Joint in der NÃ¤he
 
       1: begin
            if (firstJoint = nil) and (selectedJoint <> nil) then
@@ -1284,7 +1315,7 @@ begin
   end;
   DrawText(1, 3, '[R]eset Camera     [Space]Place     [A/D]Switch Obj     [Z]Undo     [P]lay     [Backspace]Del Selected Obj     [Entf]Reset', clWhite);
   DrawText(1, 4, '[1]Save Menu', clWhite);
-
+  
 end;
 
 
@@ -1294,7 +1325,7 @@ var
 begin
   currTime := TThread.GetTickCount64;
   realDT := (currTime - prevTime) / 1000;
-  prevTime := currTime;
+  prevTime := currTime; 
   if (realDT > 0.25) then realDT := 0.25;
   accumulator := accumulator + realDT;
   if accumulator >= FRAME_DT then furthestPoint := 0;
@@ -1340,7 +1371,7 @@ begin
     DrawBorder;
 
     GetCursorPos(pt);
-
+    
     if mode = 1 then
     begin
       mode1;
@@ -1355,13 +1386,13 @@ begin
 
 
 
-
+    
 
     //DrawText(2, 2, 'X: ' + IntToStr(Round(pt.x)) + '  Y: ' + IntToStr(pt.y), clBrYellow);
     //DrawText(Round(pt.x / 1440 * WIDTH), Round(HEIGHT-(1 - pt.y / 900) * HEIGHT), WideChar($2197), clBrYellow);
     //2559 1439
     Draw;
-
+    
 
     //WriteLn(Round(pt.x), '  ', (pt.y));
 
