@@ -40,7 +40,7 @@ const
 
   RESTITUTION = 0;   // 0 = kleben, 0.5 = Gummiball
   WIDTH  = 140;         // Braille-Zellen horizontal
-  HEIGHT = 40;          // Braille-Zellen vertikal
+  HEIGHT = 39;          // Braille-Zellen vertikal
   VW = WIDTH  * 2;      // virtuelle Pixel horizontal
   VH = HEIGHT * 4;      // virtuelle Pixel vertikal
 
@@ -59,6 +59,7 @@ const
 
 
 var
+  tempLoaded : Boolean;
   keyDown:   array[0..255] of Boolean;   // gerade gedrückt?
   keyWasDown: array[0..255] of Boolean;
   avgSpeed, currSpeed, prevPos, currPos, speedAmts : Single;
@@ -1081,7 +1082,8 @@ end;
 procedure switchToSim();
 begin
     mode := 2;
-    SaveCreature(ExePath + 'current.lol');
+    if tempLoaded <> True then
+    SaveCreature(ExePath + 'current.lol'); //'LIFE OF LIFE' FILE
     //WriteLn('save play!: ', ExePath);
     speedAmts := 0;
     bResetCamera := True;
@@ -1093,6 +1095,7 @@ begin
   if fromSim then begin
     bResetCameraDrw := True;
     LoadCreature(ExePath + 'current.lol');
+    if tempLoaded then tempLoaded := False;
     //WriteLn('load play!: ', ExePath);
   end;
 end;
@@ -1123,12 +1126,50 @@ begin
   end;
 end;
 
+function CountCreature(const filename: string;
+                       out nj, nb, nm: Integer): Boolean;
+var
+  f: TextFile;
+  i, n: Integer;
+begin
+  Result := False;
+  nj := -1; nb := -1; nm := -1;
+  AssignFile(f, filename);
+  {$I-}
+  Reset(f);
+  if IOResult <> 0 then begin {$I+} Exit; end;
+
+  ReadLn(f, nj);
+  if IOResult = 0 then
+  begin
+    n := nj;
+    for i := 1 to n do ReadLn(f);          // Joint-Zeilen überspringen
+    if IOResult = 0 then
+    begin
+      ReadLn(f, nb);
+      if IOResult = 0 then
+      begin
+        n := nb;
+        for i := 1 to n do ReadLn(f);      // Bone-Zeilen überspringen
+        if IOResult = 0 then ReadLn(f, nm);
+      end;
+    end;
+    CloseFile(f);
+  end;
+  {$I+}
+  Result := nm >= 0;   // True nur, wenn wirklich alle 3 Counts gelesen
+end;
+
+
+
+
 procedure playerInputsSave;
 var 
   i:Integer;
   txt:WideString;
     f: TextFile;
     n:Integer;
+    a, b, c:Integer;
 begin
   for i:=0 to 9 do
   begin
@@ -1136,24 +1177,29 @@ begin
     if (i = save_select) then DrawText(8, i+10, txt, clWhite)
     else DrawText(8, i+10, txt, clGray);
     
-    AssignFile(f, Format('ExePath%dcreature.lol', [i]));
-    //WriteLn(Format('ExePath%dcreature.lol', [i]));
+    AssignFile(f, Format('%s%dcreature.lol', [ExePath, i]));
+    //WriteLn(Format('%s%dcreature.lol', [ExePath, i]));
     {$I-}
     Reset(f);
     {$I+}
-    if IOResult <> 0 then begin continue; end; ////DBDBDBDBD
-    txt := Format('exists!: %d', [i]);
+    if IOResult <> 0 then begin txt := Format('EMPTY SLOT', [i]); if (i = save_select) then DrawText(14, i+10, txt, clWhite)
+    else DrawText(14, i+10, txt, clGray);continue; end;
+    CloseFile(f);
+    if CountCreature(Format('%s%dcreature.lol', [ExePath, i]), a, b, c) then
+    txt := Format('FULL SLOT:  Joints: %d | Bones: %d | Muscles: %d', [a, b, c])
+    else txt := 'EMPTY SLOT';
     if (i = save_select) then DrawText(14, i+10, txt, clWhite)
     else DrawText(14, i+10, txt, clGray);
   end;
   //txt := Format('%d', [save_select]);
-  //DrawText(8, save_select+10, txt, clWhite);
+  DrawText(2, 2, '[TAB]Draw Menu     [S]ave     [L]oad     [T]emporary Load', clWhite);
   
-  if KeyPressed(Ord('S'))  then begin SaveCreature(Format('ExePath%dcreature.lol', [save_select])); end;//GIG end;
-  if Key(VK_RIGHT) then begin camx := camx + 0.5; bResetCameraDrw := False; end;
+  if KeyPressed(Ord('S'))  then begin SaveCreature(Format('%s%dcreature.lol', [ExePath, save_select]));  end;//GIG end;
+  if (KeyPressed(Ord('L'))) or (KeyPressed(VK_ENTER)) then begin LoadCreature(Format('%s%dcreature.lol', [ExePath, save_select])); switchToDraw();end;
+  if KeyPressed(Ord('T')) then begin SaveCreature(ExePath + 'current.lol'); LoadCreature(Format('%s%dcreature.lol', [ExePath, save_select])); switchToDraw();tempLoaded := True; end;
   if KeyPressed(VK_UP)  then begin save_select := save_select - 1; if save_select <0 then save_select := 9; end;
   if KeyPressed(VK_DOWN)    then begin save_select := (save_select + 1) mod 10; end;
-  if KeyPressed(Ord('1')) then switchToDraw();
+  if KeyPressed(VK_TAB) then switchToDraw();
 end;
 
 procedure playerInputsDraw;
@@ -1205,7 +1251,7 @@ begin
       end;
 
   // ---- Save / Load ----
-  if KeyPressed(Ord('1')) then
+  if KeyPressed(VK_TAB) then
   begin
     switchToSave();
     //WriteLn('save!: ', ExePath);
@@ -1314,7 +1360,7 @@ begin
     2: DrawText(2, 2, '[Muscle]', clRed);
   end;
   DrawText(1, 3, '[R]eset Camera     [Space]Place     [A/D]Switch Obj     [Z]Undo     [P]lay     [Backspace]Del Selected Obj     [Entf]Reset', clWhite);
-  DrawText(1, 4, '[1]Save Menu', clWhite);
+  DrawText(1, 4, '[TAB]Save Menu', clWhite);
   
 end;
 
