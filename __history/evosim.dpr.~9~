@@ -68,7 +68,7 @@ const
 
   clBrRed   = 9;    clBrGreen = 10;  clBrYellow = 11; clBrBlue = 12;
   clBrMag   = 13;   clBrCyan  = 14;  clBrWhite  = 15; clGray   = 8;
-  gravity = -9.81*20;
+  gravity = -9.81*10;
 
   dampening = 0.97;
   FRAME_DT = 2/60;
@@ -129,7 +129,7 @@ pNow: Boolean; //MOVE123 /ROTATE /EDIT PRECISE/ COPY-PASTE /min dist between joi
   pixColor: array of Byte;
   frameBuf: WideString;
   curColor: Byte = 0;
-  level: Integer = 1;
+  level: Integer = 0;
   camx, camy : Single;
   mode : Integer = 1; //0 = MENU //1 = DRAW //2 = SIMLUATION //3 = SAVE
   drwSlct: Integer = 0;
@@ -845,28 +845,24 @@ begin
     localCurrentPosVal   := currPos[s] / 100.0;
     localCurrentSpeedVal := currSpeed[s] / 20.0;
 
-    localCurrentPosVal := Max(-1.0, Min(1.0, localCurrentPosVal));
-    localCurrentSpeedVal := Max(-1.0, Min(1.0, localCurrentSpeedVal));
-
-    for i := 0 to High(muscles) do
+    for j := 0 to High(mmuscles) do
     begin
+      for i := 0 to High(muscles) do
+      begin
         localSum := Biases[s];
         localSum := localSum + localCurrentPosVal * Weights[s][0];
         localSum := localSum + localCurrentSpeedVal * Weights[s][1];
-        localSum := localSum + getMuscleValue(mmuscles[s][i]) * Weights[s][2];
+        localSum := localSum + getMuscleValue(mmuscles[j][i]) * Weights[s][2];
 
-        curM := mmuscles[s][i]^;
+        curM := mmuscles[j][i]^;
 
         n := Tanh(localSum);
-
-        b := curM.min_length +
-             ((n + 1) * 0.5) *
-             (curM.max_length - curM.min_length);
-
+        b := curM.min_length + ((n + 1) * 0.5) * (curM.max_length - curM.min_length);
         a := 1 - Exp(-dt / 0.1);
+        mmuscles[j][i]^.target := curM.target + a * (b - curM.target);
 
-        mmuscles[s][i]^.target :=
-          curM.target + a * (b - curM.target);
+        { (muscles[i]^.target + curM.max_length - (1 - Exp(-dt / 0.02);) * (curM.max_length - curM.min_length))/7}{curM.max_length - a * (curM.max_length - curM.min_length)};
+      end;
     end;
   end);
 end;

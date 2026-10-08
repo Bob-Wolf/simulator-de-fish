@@ -90,8 +90,9 @@ var
   keyDown:   array[0..255] of Boolean;   // gerade gedrückt?
   keyWasDown: array[0..255] of Boolean;
   //avgSpeed, currSpeed, prevPos,, speedAmts : Single;
-  avgSpeed, currSpeed, speedAmts, currPos, highScore : array of SIngle;
-  curX, curY: Single; 
+  avgSpeed, currSpeed, speedAmts, currPos : array of SIngle;
+  globalHighScore: Single = 0;
+  curX, curY: Single;
   firstJoint: Pjoint;
   selectedJoint: Pjoint;
   firstBone: Pbone;
@@ -128,7 +129,7 @@ pNow: Boolean; //MOVE123 /ROTATE /EDIT PRECISE/ COPY-PASTE /min dist between joi
   pixColor: array of Byte;
   frameBuf: WideString;
   curColor: Byte = 0;
-  level: Integer = 1;
+  level: Integer = 0;
   camx, camy : Single;
   mode : Integer = 1; //0 = MENU //1 = DRAW //2 = SIMLUATION //3 = SAVE
   drwSlct: Integer = 0;
@@ -785,7 +786,7 @@ var
   jointA, jointB, jointC, jointD: Pjoint;
   bone, bone2, bone3: Pbone;
 begin
-  friction := 0.2;
+  friction := 0.8;
   creatureAMT := 100;
   randomize();
 
@@ -816,6 +817,17 @@ begin
   //WriteLn(Round(getAngleOffBone(bone)));
 end;
 
+
+function getMuscleValue(m: Pmuscle): Single;
+var
+  a : Single;
+begin
+  a := ((m^.target-m^.min_length)/(m^.max_length-m^.min_length)) * 2 - 1;
+
+  Result := a;
+end;
+
+
 procedure Controller(dt: Single);
 var
   s: Integer;
@@ -826,85 +838,31 @@ begin
     a, b, n:Single;
     curM:Tmuscle;
 
-    localCurrentVal, localGoalVal: Double;
-    localBestDistance, localDifferenceVal, localEndVal: Double;
-    localCurrentInput, localGoalInput, localSum: Double;
+    localCurrentPosVal, localCurrentSpeedVal: Double;
+    localSum: Double;
   begin
     Fitnesses[s] := 0;
+    localCurrentPosVal := currPos[s];
+    localCurrentSpeedVal := currSpeed[s];
 
     for j := 0 to High(mmuscles) do
     begin
       for i := 0 to High(muscles) do
       begin
+        localSum := Biases[s];
+        localSum := localSum + localCurrentPosVal * Weights[s][0];
+        localSum := localSum + localCurrentSpeedVal * Weights[s][1];
+        localSum := localSum + getMuscleValue(mmuscles[j][i]) * Weights[s][2];
+
         curM := mmuscles[j][i]^;
 
-        n := localSum;
+        n := Tanh(localSum);
         b := curM.min_length + ((n + 1) * 0.5) * (curM.max_length - curM.min_length);
         a := 1 - Exp(-dt / 0.1);
         mmuscles[j][i]^.target := curM.target + a * (b - curM.target);
 
         { (muscles[i]^.target + curM.max_length - (1 - Exp(-dt / 0.02);) * (curM.max_length - curM.min_length))/7}{curM.max_length - a * (curM.max_length - curM.min_length)};
       end;
-  end;
-
-    localCurrentInput := localCurrentVal / taskSize;
-        localGoalInput    := localGoalVal / taskSize;
-
-        localSum := Biases[s];
-        localSum := localSum + localCurrentInput * Weights[s][0];
-        localSum := localSum + localGoalInput * Weights[s][1];
-
-        if localSum > threshold then
-        begin
-          localCurrentVal := localCurrentVal + 1;
-        end
-        else if localSum < -threshold then
-        begin
-          localCurrentVal := localCurrentVal - 1;
-        end;
-
-          Fitnesses[s] := Fitnesses[s] + ((Abs(localGoalVal - localEndVal)) + rewardBalance * localBestDistance);
-
-
-
-
-
-
-    for a := 0 to taskAmount - 1 do
-    begin
-      localCurrentVal := StartValues[a];
-      localGoalVal    := GoalValues[a];
-      localBestDistance := Abs(localGoalVal - localCurrentVal);
-
-      for j := 1 to iterationAmount do
-      begin
-        localCurrentInput := localCurrentVal / taskSize;
-        localGoalInput    := localGoalVal / taskSize;
-
-        localSum := Biases[i];
-        localSum := localSum + localCurrentInput * Weights[i][0];
-        localSum := localSum + localGoalInput * Weights[i][1];
-
-        if localSum > threshold then
-        begin
-          localCurrentVal := localCurrentVal + 1;
-        end
-        else if localSum < -threshold then
-        begin
-          localCurrentVal := localCurrentVal - 1;
-        end;
-
-        localDifferenceVal := Abs(localGoalVal - localCurrentVal);
-
-        if localDifferenceVal < localBestDistance then
-        begin
-          localBestDistance := localDifferenceVal;
-        end;
-      end;
-
-      localEndVal := localCurrentVal;
-
-      Fitnesses[i] := Fitnesses[i] + ((Abs(localGoalVal - localEndVal)) + rewardBalance * localBestDistance);
     end;
   end);
 end;
@@ -1341,15 +1299,6 @@ begin
   end;
 end;
 
-function getMuscleValue(m: Pmuscle): Single; 
-var
-  a : Single;
-begin
-  a := ((m^.target-m^.min_length)/(m^.max_length-m^.min_length)) * 2 - 1;
-
-  Result := a;
-end;
-
 function Key(k: Integer): Boolean; inline;   // gehalten
 begin
   Result := keyDown[k];
@@ -1410,9 +1359,12 @@ begin
   SetLength(avgSpeed, creatureAMT);
   SetLength(speedAmts, creatureAMT);
   SetLength(currPos, creatureAMT);
-  SetLength(highScore, creatureAMT);
+
+  time := 0;
 
   // Neural Network Logic
+
+  generation := 0;
 
   SetLength(Weights, creatureAMT, 3);
   SetLength(Biases, creatureAMT);
@@ -1425,6 +1377,7 @@ begin
   begin
     Weights[i][0] := (Random * 2.0) - 1.0;
     Weights[i][1] := (Random * 2.0) - 1.0;
+    Weights[i][2] := (Random * 2.0) - 1.0;
 
     biases[i] := (Random * 2.0) - 1.0;
   end;
@@ -1482,7 +1435,7 @@ begin
     for i:=0 to High(speedAmts) do begin
       speedAmts[i] := 0;
       currPos[i] := 0;
-      highScore[i] := 0;
+      globalHighScore := 0;
     end;
     bResetCamera := True;
 end;
@@ -1710,20 +1663,35 @@ end;
 procedure endOfGeneration;
 var
   i, j: Integer;
+  bonus: Double;
 begin
   generation := generation + 1;
 
   for i := 0 to creatureAMT - 1 do
   begin
+    Fitnesses[i] := currPos[i];
+
+    if currPos[i] > globalHighScore then
+    begin
+      bonus := rewardBalance * (currPos[i] - globalHighScore);
+      Fitnesses[i] := Fitnesses[i] + bonus;
+    end;
+
     BestFitnesses[i].Fitness := Fitnesses[i];
-    BestFitnesses[i].Index := i
+    BestFitnesses[i].Index := i;
+  end;
+
+  for i := 0 to creatureAMT - 1 do
+  begin
+    if currPos[i] > globalHighScore then
+      globalHighScore := currPos[i];
   end;
 
   for i := 0 to creatureAMT - 1 - 1 do
   begin
     for j := 0 to creatureAMT - 1 - 1 - i do
     begin
-      if BestFitnesses[j].Fitness > BestFitnesses[j + 1].Fitness then
+      if BestFitnesses[j].Fitness < BestFitnesses[j + 1].Fitness then
       begin
         tempFitnessInfo := BestFitnesses[j];
         BestFitnesses[j] := BestFitnesses[j + 1];
@@ -1748,6 +1716,8 @@ begin
     NewWeights[i][1] :=
       Weights[BestFitnesses[i].Index][1];
 
+    NewWeights[i][2] := Weights[BestFitnesses[i].Index][2];
+
     NewBiases[i] :=
       Biases[BestFitnesses[i].Index];
   end;
@@ -1762,6 +1732,10 @@ begin
 
     NewWeights[childIndex][1] :=
       NewWeights[parentIndex][1] +
+      (Random * (mutationSize * 2)) - mutationSize;
+
+    NewWeights[childIndex][2] :=
+      NewWeights[parentIndex][2] +
       (Random * (mutationSize * 2)) - mutationSize;
 
     NewBiases[childIndex] :=

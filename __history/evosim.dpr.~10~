@@ -68,7 +68,7 @@ const
 
   clBrRed   = 9;    clBrGreen = 10;  clBrYellow = 11; clBrBlue = 12;
   clBrMag   = 13;   clBrCyan  = 14;  clBrWhite  = 15; clGray   = 8;
-  gravity = -9.81*20;
+  gravity = -9.81*10;
 
   dampening = 0.97;
   FRAME_DT = 2/60;
@@ -129,7 +129,7 @@ pNow: Boolean; //MOVE123 /ROTATE /EDIT PRECISE/ COPY-PASTE /min dist between joi
   pixColor: array of Byte;
   frameBuf: WideString;
   curColor: Byte = 0;
-  level: Integer = 1;
+  level: Integer = 0;
   camx, camy : Single;
   mode : Integer = 1; //0 = MENU //1 = DRAW //2 = SIMLUATION //3 = SAVE
   drwSlct: Integer = 0;
