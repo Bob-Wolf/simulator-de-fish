@@ -856,7 +856,7 @@ begin
 
         curM := mmuscles[j][i]^;
 
-        n := Tanh(localSum);
+        n := localSum;
         b := curM.min_length + ((n + 1) * 0.5) * (curM.max_length - curM.min_length);
         a := 1 - Exp(-dt / 0.1);
         mmuscles[j][i]^.target := curM.target + a * (b - curM.target);

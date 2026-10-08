@@ -90,9 +90,8 @@ var
   keyDown:   array[0..255] of Boolean;   // gerade gedrückt?
   keyWasDown: array[0..255] of Boolean;
   //avgSpeed, currSpeed, prevPos,, speedAmts : Single;
-  avgSpeed, currSpeed, speedAmts, currPos : array of SIngle;
-  globalHighScore: Single = 0;
-  curX, curY: Single;
+  avgSpeed, currSpeed, speedAmts, currPos, highScore : array of SIngle;
+  curX, curY: Single; 
   firstJoint: Pjoint;
   selectedJoint: Pjoint;
   firstBone: Pbone;
@@ -817,17 +816,6 @@ begin
   //WriteLn(Round(getAngleOffBone(bone)));
 end;
 
-
-function getMuscleValue(m: Pmuscle): Single;
-var
-  a : Single;
-begin
-  a := ((m^.target-m^.min_length)/(m^.max_length-m^.min_length)) * 2 - 1;
-
-  Result := a;
-end;
-
-
 procedure Controller(dt: Single);
 var
   s: Integer;
@@ -838,25 +826,25 @@ begin
     a, b, n:Single;
     curM:Tmuscle;
 
-    localCurrentPosVal, localCurrentSpeedVal: Double;
+    localCurrentVal, localHighscoreVal: Double;
     localSum: Double;
   begin
     Fitnesses[s] := 0;
-    localCurrentPosVal := currPos[s];
-    localCurrentSpeedVal := currSpeed[s];
+    localCurrentVal := currPos[s];
+    localHighscoreVal := highScore[s];
 
     for j := 0 to High(mmuscles) do
     begin
       for i := 0 to High(muscles) do
       begin
         localSum := Biases[s];
-        localSum := localSum + localCurrentPosVal * Weights[s][0];
-        localSum := localSum + localCurrentSpeedVal * Weights[s][1];
-        localSum := localSum + getMuscleValue(mmuscles[j][i]) * Weights[s][2];
+        localSum := localSum + localCurrentVal * Weights[s][0];
+        localSum := localSum + localHighscoreVal * Weights[s][1];
 
         curM := mmuscles[j][i]^;
 
-        n := Tanh(localSum);
+        n := localSum;
+        DrawText(8, 8, FloatToStr(localSum));
         b := curM.min_length + ((n + 1) * 0.5) * (curM.max_length - curM.min_length);
         a := 1 - Exp(-dt / 0.1);
         mmuscles[j][i]^.target := curM.target + a * (b - curM.target);
@@ -1299,6 +1287,15 @@ begin
   end;
 end;
 
+function getMuscleValue(m: Pmuscle): Single; 
+var
+  a : Single;
+begin
+  a := ((m^.target-m^.min_length)/(m^.max_length-m^.min_length)) * 2 - 1;
+
+  Result := a;
+end;
+
 function Key(k: Integer): Boolean; inline;   // gehalten
 begin
   Result := keyDown[k];
@@ -1359,6 +1356,7 @@ begin
   SetLength(avgSpeed, creatureAMT);
   SetLength(speedAmts, creatureAMT);
   SetLength(currPos, creatureAMT);
+  SetLength(highScore, creatureAMT);
 
   time := 0;
 
@@ -1377,7 +1375,6 @@ begin
   begin
     Weights[i][0] := (Random * 2.0) - 1.0;
     Weights[i][1] := (Random * 2.0) - 1.0;
-    Weights[i][2] := (Random * 2.0) - 1.0;
 
     biases[i] := (Random * 2.0) - 1.0;
   end;
@@ -1435,7 +1432,7 @@ begin
     for i:=0 to High(speedAmts) do begin
       speedAmts[i] := 0;
       currPos[i] := 0;
-      globalHighScore := 0;
+      highScore[i] := 0;
     end;
     bResetCamera := True;
 end;
@@ -1663,35 +1660,21 @@ end;
 procedure endOfGeneration;
 var
   i, j: Integer;
-  bonus: Double;
 begin
   generation := generation + 1;
 
   for i := 0 to creatureAMT - 1 do
   begin
-    Fitnesses[i] := currPos[i];
-
-    if currPos[i] > globalHighScore then
-    begin
-      bonus := rewardBalance * (currPos[i] - globalHighScore);
-      Fitnesses[i] := Fitnesses[i] + bonus;
-    end;
-
+    Fitnesses[i] := currPos[i] + rewardBalance * Max(0, currPos[i] - highScore[i]);
     BestFitnesses[i].Fitness := Fitnesses[i];
-    BestFitnesses[i].Index := i;
-  end;
-
-  for i := 0 to creatureAMT - 1 do
-  begin
-    if currPos[i] > globalHighScore then
-      globalHighScore := currPos[i];
+    BestFitnesses[i].Index := i
   end;
 
   for i := 0 to creatureAMT - 1 - 1 do
   begin
     for j := 0 to creatureAMT - 1 - 1 - i do
     begin
-      if BestFitnesses[j].Fitness < BestFitnesses[j + 1].Fitness then
+      if BestFitnesses[j].Fitness > BestFitnesses[j + 1].Fitness then
       begin
         tempFitnessInfo := BestFitnesses[j];
         BestFitnesses[j] := BestFitnesses[j + 1];
@@ -1716,8 +1699,6 @@ begin
     NewWeights[i][1] :=
       Weights[BestFitnesses[i].Index][1];
 
-    NewWeights[i][2] := Weights[BestFitnesses[i].Index][2];
-
     NewBiases[i] :=
       Biases[BestFitnesses[i].Index];
   end;
@@ -1732,10 +1713,6 @@ begin
 
     NewWeights[childIndex][1] :=
       NewWeights[parentIndex][1] +
-      (Random * (mutationSize * 2)) - mutationSize;
-
-    NewWeights[childIndex][2] :=
-      NewWeights[parentIndex][2] +
       (Random * (mutationSize * 2)) - mutationSize;
 
     NewBiases[childIndex] :=
