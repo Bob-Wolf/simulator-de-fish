@@ -317,6 +317,7 @@ end;
 procedure DrawMap1();
 var i : Integer;
 txt:String;
+ cx, cy: Integer;
 begin
   DrawLine(-400, 3, 2000, 3, clGreen);
   DrawLine(-400, 0, -400, 120, clGray);
@@ -326,9 +327,14 @@ begin
   if (i mod 100) = 0 then begin
   DrawLine(i, 4, i, 8, clGray);
   txt := Format('%d', [i]);
-  DrawText(Round((i-camx)/2-1), Round(HEIGHT-1-camy/4), txt, clWhite);
+  //WriteLn(Round(camx), ' : ', i, '  ', Round(camy), '   ', Round((i-camx)/2-1), '   ', Round(HEIGHT-1-camy/4));
+  //cx := Round((i - camx) / 2 - 1);
+  //cy := Round(HEIGHT - 1 - camy / 4);
+  //if (cx > -5) and (cx < WIDTH) and (cy >= 20) and (cy < HEIGHT) then
+    DrawText(Round((i-camx)/2-1), Round(HEIGHT-1-camy/4), txt, clWhite);
   end;
   end;
+  //WriteLn('::', Round(camx), '  ', Round(camy));
 end;
 
 procedure DrawMap();
@@ -1204,8 +1210,8 @@ begin
   // Kamera (gehalten)
   if Key(VK_LEFT)  then begin camx := camx - 0.5; bResetCamera := False; end;
   if Key(VK_RIGHT) then begin camx := camx + 0.5; bResetCamera := False; end;
-  if Key(VK_DOWN)  then begin camy := camy - 0.5; bResetCamera := False; end;
-  if Key(VK_UP)    then begin camy := camy + 0.5; bResetCamera := False; end;
+  //if Key(VK_DOWN)  then begin camy := camy - 0.5; bResetCamera := False; end;
+  //if Key(VK_UP)    then begin camy := camy + 0.5; bResetCamera := False; end;
 
   if KeyPressed(Ord('R')) then bResetCamera := True;
 
@@ -1328,10 +1334,10 @@ begin
   end;
 
   // ---- Kamera (gehalten, kein Edge) ----
-  if Key(VK_LEFT)  then begin camx := camx - 0.5; bResetCameraDrw := False; end;
-  if Key(VK_RIGHT) then begin camx := camx + 0.5; bResetCameraDrw := False; end;
-  if Key(VK_DOWN)  then begin camy := camy - 0.5; bResetCameraDrw := False; end;
-  if Key(VK_UP)    then begin camy := camy + 0.5; bResetCameraDrw := False; end;
+  // if Key(VK_LEFT)  then begin camx := camx - 0.5; bResetCameraDrw := False; end;
+  // if Key(VK_RIGHT) then begin camx := camx + 0.5; bResetCameraDrw := False; end;
+  // if Key(VK_DOWN)  then begin camy := camy - 0.5; bResetCameraDrw := False; end;
+  // if Key(VK_UP)    then begin camy := camy + 0.5; bResetCameraDrw := False; end;
 
   // ---- Objekte platzieren / verbinden (Space) ----
   if KeyPressed(Ord(' ')) then
@@ -1448,9 +1454,9 @@ begin
   txt := Format('[AVG Speed] %.2f', [avgSpeed]);
   DrawText(2, 2, txt, clWhite);
   txt := Format('[Current Speed] %.2f', [currSpeed]);
-  DrawText(20, 2, txt, clWhite);
+  DrawText(30, 2, txt, clWhite);
   txt := Format('[Position] %.2f', [furthestPoint]);
-  DrawText(40, 2, txt, clWhite);
+  DrawText(60, 2, txt, clWhite);
   if bResetCamera then resetCamera(FRAME_DT);
 end;
 
