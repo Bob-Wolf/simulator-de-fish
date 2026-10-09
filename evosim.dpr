@@ -68,7 +68,7 @@ const
 
   clBrRed   = 9;    clBrGreen = 10;  clBrYellow = 11; clBrBlue = 12;
   clBrMag   = 13;   clBrCyan  = 14;  clBrWhite  = 15; clGray   = 8;
-  gravity = -9.81*10;
+  gravity = -9.81*15;
 
   dampening = 0.97;
   FRAME_DT = 2/60;
@@ -77,7 +77,7 @@ const
 
 
 var
-  runTime : Single = 10;
+  runTime : Single = 20;
   FRICTION : Single = 0.8;
   map2_width : Single = 140;
   map2_height : Single = 80;
@@ -90,7 +90,7 @@ var
   keyDown:   array[0..255] of Boolean;   // gerade gedrückt?
   keyWasDown: array[0..255] of Boolean;
   //avgSpeed, currSpeed, prevPos,, speedAmts : Single;
-  avgSpeed, currSpeed, speedAmts, currPos : array of SIngle;
+  avgSpeed, currSpeed, speedAmts, currPos, startPos : array of Single;
   globalHighScore: Single = 0;
   curX, curY: Single;
   firstJoint: Pjoint;
@@ -156,8 +156,8 @@ pNow: Boolean; //MOVE123 /ROTATE /EDIT PRECISE/ COPY-PASTE /min dist between joi
   childIndex:       Integer;
   parentIndex:      Integer;
 
-  rewardBalance:    Double = 0.01;
-  mutationSize:     Double = 0.1;
+  rewardBalance:    Double = 0.05;
+  mutationSize:     Double = 0.2;
 
   // Neural Network Logic End
 
@@ -817,6 +817,37 @@ begin
   //WriteLn(Round(getAngleOffBone(bone)));
 end;
 
+function CreatureCenterX(creatureIndex: Integer): Single;
+var
+  j: Integer;
+  invMass: Single;
+  mass, totalMass, weightedX: Double;
+begin
+  weightedX := 0;
+  totalMass := 0;
+
+  for j := 0 to High(joints) do
+  begin
+    invMass := mjoints[creatureIndex][j]^.invMass;
+
+    // invMass ist die inverse Masse.
+    // Festgehaltene Gelenke (invMass = 0) ignorieren.
+    if invMass > 0 then
+    begin
+      mass := 1.0 / invMass;
+
+      weightedX :=
+        weightedX + mjoints[creatureIndex][j]^.x * mass;
+
+      totalMass := totalMass + mass;
+    end;
+  end;
+
+  if totalMass > 0 then
+    Result := weightedX / totalMass
+  else
+    Result := 0;
+end;
 
 function getMuscleValue(m: Pmuscle): Single;
 var
@@ -887,6 +918,8 @@ begin
     i, j, x, y:Integer;
     a, b, n:Single;
     curM:Tmuscle;
+    muscleIndex: Single;
+    angleA, angleB, relativeAngle: Double;
 
     localCurrentPosVal, localCurrentSpeedVal: Double;
     localSum: Double;
@@ -904,6 +937,30 @@ begin
         localSum := localSum + localCurrentPosVal * Weights[s][0];
         localSum := localSum + localCurrentSpeedVal * Weights[s][1];
         localSum := localSum + getMuscleValue(mmuscles[s][i]) * Weights[s][2];
+        muscleIndex := 0;
+
+        if High(mmuscles[s]) > 0 then
+          muscleIndex :=
+            (2.0 * i / High(mmuscles[s])) - 1.0;
+
+        localSum :=
+          localSum + muscleIndex * Weights[s][3];
+
+        angleA := DegToRad(
+          getAngleOffBone(mmuscles[s][i]^.a)
+        );
+
+        angleB := DegToRad(
+          getAngleOffBone(mmuscles[s][i]^.b)
+        );
+
+        relativeAngle := angleA - angleB;
+
+        localSum := localSum +
+          Sin(relativeAngle) * Weights[s][4];
+
+        localSum := localSum +
+          Cos(relativeAngle) * Weights[s][5];
 
         curM := mmuscles[s][i]^;
 
@@ -1186,15 +1243,24 @@ end;
 procedure Collision();
 var
   i, j, k: Integer;
+  displacement: Single;
 begin
-  for i := 0 to High(mjoints) do begin
-  for j := 0 to High(joints) do
+  for i := 0 to High(mjoints) do
   begin
-    for k := 0 to High(collisions) do
-      CollideJoint(mjoints[i][j], collisions[k]);
-      if mjoints[i][j]^.x > currPos[i] then currPos[i] := mjoints[i][j]^.x;
+    // Zuerst alle Gelenke dieses Roboters kollidieren lassen
+    for j := 0 to High(joints) do
+    begin
+      for k := 0 to High(collisions) do
+        CollideJoint(mjoints[i][j], collisions[k]);
     end;
-    end;
+
+    // Jetzt die Bewegung des gesamten Roboters messen
+    displacement := CreatureCenterX(i) - startPos[i];
+
+    // Bisher besten Vorwärtsfortschritt behalten
+    if displacement > currPos[i] then
+      currPos[i] := displacement;
+  end;
 end;
 
 
@@ -1414,6 +1480,7 @@ begin
   SetLength(avgSpeed, creatureAMT);
   SetLength(speedAmts, creatureAMT);
   SetLength(currPos, creatureAMT);
+  SetLength(startPos, creatureAMT);
 
   time := 0;
 
@@ -1421,11 +1488,11 @@ begin
 
   generation := 0;
 
-  SetLength(Weights, creatureAMT, 3);
+  SetLength(Weights, creatureAMT, 6);
   SetLength(Biases, creatureAMT);
   SetLength(Fitnesses, creatureAMT);
   SetLength(BestFitnesses, creatureAMT);
-  SetLength(NewWeights, creatureAMT, 3);
+  SetLength(NewWeights, creatureAMT, 6);
   SetLength(NewBiases, creatureAMT);
 
   for i := 0 to creatureAMT - 1 do
@@ -1433,6 +1500,9 @@ begin
     Weights[i][0] := (Random * 2.0) - 1.0;
     Weights[i][1] := (Random * 2.0) - 1.0;
     Weights[i][2] := (Random * 2.0) - 1.0;
+    Weights[i][3] := (Random * 2.0) - 1.0;
+    Weights[i][4] := (Random * 2.0) - 1.0;
+    Weights[i][5] := (Random * 2.0) - 1.0;
 
     biases[i] := (Random * 2.0) - 1.0;
   end;
@@ -1441,40 +1511,114 @@ begin
 end;
 
 
-
 procedure resetSimulation();
-var i, j: Integer;
+var
+  i, j: Integer;
+  minX, maxX, spawnOffset: Single;
 begin
+  if Length(joints) = 0 then
+    Exit;
 
+  // Linkeste und rechteste X-Koordinate bestimmen
+  minX := joints[0]^.x;
+  maxX := joints[0]^.x;
+
+  for j := 1 to High(joints) do
+  begin
+    if joints[j]^.x < minX then
+      minX := joints[j]^.x;
+
+    if joints[j]^.x > maxX then
+      maxX := joints[j]^.x;
+  end;
+
+  // Körpermitte exakt auf X = 0 setzen
+  spawnOffset := (minX + maxX) / 2;
+
+  // Kreaturen neu erzeugen
   for i := 0 to High(mjoints) do
-  for j := 0 to High(joints) do
   begin
-    New(mjoints[i][j]);
-    mjoints[i][j]^ := joints[j]^;
-    mjoints[i][j]^.x := joints[j]^.x + (Random(21) - 10) * 0.05;  // kleiner Zufalls-Offset
-    mjoints[i][j]^.y := joints[j]^.y + (Random(21) - 10) * 0.05;
-  end;
-for i := 0 to High(mbones) do
-  for j := 0 to High(bones) do
-  begin
-    New(mbones[i][j]);
-    mbones[i][j]^ := bones[j]^;
-    mbones[i][j]^.a := mjoints[i][IndexOfJoint(bones[j]^.a)];   // Pointer umbiegen!
-    mbones[i][j]^.b := mjoints[i][IndexOfJoint(bones[j]^.b)];
-  end;
-for i := 0 to High(mmuscles) do
-  for j := 0 to High(muscles) do
-  begin
-    New(mmuscles[i][j]);
-    mmuscles[i][j]^ := muscles[j]^;
-    mmuscles[i][j]^.a := mbones[i][IndexOfBone(muscles[j]^.a)];  // Pointer umbiegen!
-    mmuscles[i][j]^.b := mbones[i][IndexOfBone(muscles[j]^.b)];
-  end;
-    for i:=0 to High(speedAmts) do begin
-      speedAmts[i] := 0;
-      currPos[i] := 0;
+    for j := 0 to High(joints) do
+    begin
+      if mjoints[i][j] = nil then
+        New(mjoints[i][j]);
+
+      // Originaldaten kopieren
+      mjoints[i][j]^ := joints[j]^;
+
+      // X-Koordinate relativ zur Körpermitte
+      mjoints[i][j]^.x :=
+        joints[j]^.x - spawnOffset;
+
+      // Y-Koordinate unverändert übernehmen
+      mjoints[i][j]^.y :=
+        joints[j]^.y;
+
+      // Vorherige Position angleichen,
+      // damit kein künstlicher Startimpuls entsteht
+      mjoints[i][j]^.px :=
+        mjoints[i][j]^.x;
+
+      mjoints[i][j]^.py :=
+        mjoints[i][j]^.y;
     end;
-  //halt;
+  end;
+
+  // Bones mit den neuen Gelenken verbinden
+  for i := 0 to High(mbones) do
+  begin
+    for j := 0 to High(bones) do
+    begin
+      if mbones[i][j] = nil then
+        New(mbones[i][j]);
+
+      mbones[i][j]^ := bones[j]^;
+
+      mbones[i][j]^.a :=
+        mjoints[i][IndexOfJoint(bones[j]^.a)];
+
+      mbones[i][j]^.b :=
+        mjoints[i][IndexOfJoint(bones[j]^.b)];
+    end;
+  end;
+
+  // Muskeln mit den neuen Bones verbinden
+  for i := 0 to High(mmuscles) do
+  begin
+    for j := 0 to High(muscles) do
+    begin
+      if mmuscles[i][j] = nil then
+        New(mmuscles[i][j]);
+
+      mmuscles[i][j]^ := muscles[j]^;
+
+      mmuscles[i][j]^.a :=
+        mbones[i][IndexOfBone(muscles[j]^.a)];
+
+      mmuscles[i][j]^.b :=
+        mbones[i][IndexOfBone(muscles[j]^.b)];
+    end;
+  end;
+
+  // Referenz für die Anfangsposition festlegen:
+  // das rechteste Gelenk der gespawnten Kreatur.
+  // So beginnt der gemessene Fortschritt bei 0.
+  for i := 0 to High(mjoints) do
+  begin
+    startPos[i] := CreatureCenterX(i);
+
+    currPos[i] := 0;
+    currSpeed[i] := 0;
+    avgSpeed[i] := 0;
+    speedAmts[i] := 0;
+  end;
+
+  // Simulationszustand zurücksetzen
+  time := 0;
+  simulationTime := 0;
+  accumulator := 0;
+  realDT := 0;
+  prevTime := TThread.GetTickCount64;
 end;
 
 procedure switchToSim();
@@ -1492,6 +1636,11 @@ begin
       currPos[i] := 0;
       globalHighScore := 0;
     end;
+    bResetCamera := True;
+    camx := -141;
+    camy := 0;
+    camTarget := -141;
+    camTargetSet := True;
     bResetCamera := True;
 end;
 
@@ -1773,6 +1922,12 @@ begin
 
     NewWeights[i][2] := Weights[BestFitnesses[i].Index][2];
 
+    NewWeights[i][3] := Weights[BestFitnesses[i].Index][3];
+
+    NewWeights[i][4] := Weights[BestFitnesses[i].Index][4];
+
+    NewWeights[i][5] := Weights[BestFitnesses[i].Index][4];
+
     NewBiases[i] :=
       Biases[BestFitnesses[i].Index];
   end;
@@ -1791,6 +1946,18 @@ begin
 
     NewWeights[childIndex][2] :=
       NewWeights[parentIndex][2] +
+      (Random * (mutationSize * 2)) - mutationSize;
+
+    NewWeights[childIndex][3] :=
+      NewWeights[parentIndex][3] +
+      (Random * (mutationSize * 2)) - mutationSize;
+
+    NewWeights[childIndex][4] :=
+      NewWeights[parentIndex][4] +
+      (Random * (mutationSize * 2)) - mutationSize;
+
+    NewWeights[childIndex][5] :=
+      NewWeights[parentIndex][5] +
       (Random * (mutationSize * 2)) - mutationSize;
 
     NewBiases[childIndex] :=
@@ -1842,17 +2009,20 @@ procedure mode2;
 var
   txt: String;
   i: Integer;
+  bestCurrent: Single;
 begin
   currTime := TThread.GetTickCount64;
   realDT := (currTime - prevTime) / 1000;
   prevTime := currTime;
   if (realDT > 0.25) then realDT := 0.25;
   accumulator := accumulator + realDT;
-  if accumulator >= FRAME_DT then begin
-  for i:=0 to High(currPos) do begin
-    currPos[i] := mjoints[i][0]^.x;   // Startposition als Referenz
-  currSpeed[i] := 0; end;
-  end;
+  {if accumulator >= FRAME_DT then begin
+    for i:=0 to High(currPos) do
+    begin
+      currPos[i] := mjoints[i][0]^.x;   // Startposition als Referenz
+      currSpeed[i] := 0;
+    end;
+  end;  }
   while accumulator >= (FRAME_DT) do
   begin
     SimulationTick(FRAME_DT);
@@ -1865,13 +2035,31 @@ begin
   //DrawMuscles;
   DrawMap;
   drawCursor;
+
+  // Besten Fortschritt der aktuellen Generation ermitteln
+  bestCurrent := 0;
+
+  for i := 0 to High(currPos) do
+  begin
+    if currPos[i] > bestCurrent then
+      bestCurrent := currPos[i];
+  end;
+
+  // Trainingsinformationen anzeigen
+  txt := Format(
+    '[Gen] %d [Best jetzt] %.2f [Rekord] %.2f',
+    [generation, bestCurrent, globalHighScore]
+  );
+
+  DrawText(80, 2, txt, clWhite);
+
   DrawText(1, 3, '[R]eset Camera+Follow     [P]Back     [ARROW_KEYS]Move', clWhite);
   txt := Format('[AVG Speed] %.2f', [avgSpeed[0]]);
   DrawText(2, 2, txt, clWhite);
   txt := Format('[Current Speed] %.2f', [currSpeed[0]]);
-  DrawText(30, 2, txt, clWhite);
+  DrawText(25, 2, txt, clWhite);
   txt := Format('[Position] %.2f', [currPos[0]]);
-  DrawText(60, 2, txt, clWhite);
+  DrawText(55, 2, txt, clWhite);
   if bResetCamera then resetCamera(FRAME_DT);
 end;
 
