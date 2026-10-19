@@ -74,7 +74,7 @@ const
   dampening = 0.97;
   FRAME_DT = 2/60;
   SUBSTEPS = 4;
-  SOLVER_ITER = 4;
+  SOLVER_ITER = 12;
 
   CreatureColors: array[0..9] of Byte =
     (clYellow, clBrGreen, clBrCyan, clMagenta, clBrRed,
@@ -610,14 +610,13 @@ var
   ia, ib: Integer;
 begin
   AssignFile(f, filename);
-  Rewrite(f);
+  {$I-} Rewrite(f); {$I+}
+  if IOResult <> 0 then Exit;
 
-  // Joints: x y invMass
   WriteLn(f, Length(joints));
   for i := 0 to High(joints) do
     WriteLn(f, joints[i]^.x, ' ', joints[i]^.y, ' ', joints[i]^.invMass);
 
-  // Bones: indexA indexB rest_length stiffness
   WriteLn(f, Length(bones));
   for i := 0 to High(bones) do
   begin
@@ -626,7 +625,6 @@ begin
     WriteLn(f, ia, ' ', ib, ' ', bones[i]^.rest_length, ' ', bones[i]^.stiffness);
   end;
 
-  // Muscles: indexA indexB min max stiffness freq phase
   WriteLn(f, Length(muscles));
   for i := 0 to High(muscles) do
   begin
@@ -638,11 +636,8 @@ begin
   end;
 
   CloseFile(f);
-
-  //WriteLn('Gespeichert: ', Length(joints), ' joints, ',
-  //        Length(bones), ' bones, ', Length(muscles), ' muscles -> ',
-  //        ExpandFileName(filename));
 end;
+
 
 procedure ClearCreature;
 var
@@ -656,6 +651,7 @@ begin
   firstJoint := nil; selectedJoint := nil;
   firstBone := nil;  selectedBone := nil;
 end;
+
 
 
 //======================= HELPER FUNCTIONS =====================================
@@ -739,6 +735,7 @@ begin
   if IOResult <> 0 then Exit;
 
   ClearCreature;
+
   ReadLn(f, n);
   for i := 0 to n-1 do
   begin
@@ -763,6 +760,7 @@ begin
   CloseFile(f);
 end;
 
+
 procedure DrawPreview(slot: Integer);
 var
   i: Integer;
@@ -784,6 +782,7 @@ begin
   LoadCreature(fname);
   if Length(joints) = 0 then
   begin
+    LoadCreature(ExePath + 'preview_backup.lol');
     camx := oldCamX;  camy := oldCamY;
     DrawText(80, 20, '[keine Vorschau]', clGray);
     Exit;
@@ -1462,33 +1461,26 @@ begin
 end;
 procedure SolveMuscle(const m: Tmuscle; target, stiffness: Double);
 var
-  ax, ay, bx, by: Single;
-  dx, dy, len, diff, corr: Double;
+  ax, ay, bx, by, dx, dy, len, diff, corr: Double;
 begin
   ax := (m.a^.a^.x + m.a^.b^.x) * 0.5;
   ay := (m.a^.a^.y + m.a^.b^.y) * 0.5;
   bx := (m.b^.a^.x + m.b^.b^.x) * 0.5;
   by := (m.b^.a^.y + m.b^.b^.y) * 0.5;
 
-  dx := ax - bx;
-  dy := ay - by;
+  dx := ax - bx;  dy := ay - by;
   len := Sqrt(Sqr(dx) + Sqr(dy));
   if len < 0.0001 then Exit;
   diff := (len - target) / len;
   corr := diff * stiffness * 0.5;
 
-  // Bone a: Mitte rueckt Richtung b (bzw. weg, je nach Vorzeichen)
+  // Bone a: nur a-Endpunkt zieht Richtung Bone-b-Mitte, b-Endpunkt fix ...
   m.a^.a^.x := m.a^.a^.x - dx * corr;
   m.a^.a^.y := m.a^.a^.y - dy * corr;
-  m.a^.b^.x := m.a^.b^.x - dx * corr;
-  m.a^.b^.y := m.a^.b^.y - dy * corr;
-
-  // Bone b: gegenteilig
-  m.b^.a^.x := m.b^.a^.x + dx * corr;
-  m.b^.a^.y := m.b^.a^.y + dy * corr;
   m.b^.b^.x := m.b^.b^.x + dx * corr;
   m.b^.b^.y := m.b^.b^.y + dy * corr;
 end;
+
 
 
 procedure Constrains();
@@ -1634,22 +1626,24 @@ begin
   if IOResult = 0 then
   begin
     n := nj;
-    for i := 1 to n do ReadLn(f);          // Joint-Zeilen überspringen
+    for i := 1 to n do ReadLn(f);
     if IOResult = 0 then
     begin
       ReadLn(f, nb);
       if IOResult = 0 then
       begin
         n := nb;
-        for i := 1 to n do ReadLn(f);      // Bone-Zeilen überspringen
+        for i := 1 to n do ReadLn(f);
         if IOResult = 0 then ReadLn(f, nm);
       end;
     end;
     CloseFile(f);
   end;
   {$I+}
-  Result := nm >= 0;   // True nur, wenn wirklich alle 3 Counts gelesen
+    Result := nj > 0;   // joints-only = gültige Creature
+
 end;
+
 
 procedure initSimulation();
 var a, b, c, i : Integer;
@@ -1906,9 +1900,10 @@ begin
     bResetCameraDrw := True;
     LoadCreature(ExePath + 'current.lol');
     if tempLoaded then tempLoaded := False;
-    //WriteLn('load play!: ', ExePath);
   end;
+  DeleteFile(ExePath + 'preview_backup.lol');
 end;
+
 
 procedure switchToSave();
 begin
@@ -2062,14 +2057,19 @@ begin
         Break;
       end;
 
+  
+
   // ---- Undo (Ctrl+Z bzw. Z) ----
-  if KeyPressed(Ord('Z')) then
-    if Length(strgzable) > 0 then
-      case strgzable[High(strgzable)] of
-        0: DeleteLastJoint;
-        1: DeleteLastBone;
-        2: DeleteLastMuscle;
-      end;
+  if KeyPressed(Ord('Z')) and (Length(strgzable) > 0) then
+  begin
+    case strgzable[High(strgzable)] of
+      0: DeleteLastJoint;
+      1: DeleteLastBone;
+      2: DeleteLastMuscle;
+    end;
+    SetLength(strgzable, Length(strgzable) - 1);
+  end;
+
 
   // ---- Save / Load ----
   if KeyPressed(VK_TAB) then
@@ -2289,6 +2289,7 @@ begin
 end;
 
 procedure mode1;
+var ox, oy, len, dx, dy : SIngle;
 begin
   playerInputsDraw;
   if bResetCameraDrw then resetCameraDrw(FRAME_DT);
@@ -2297,6 +2298,7 @@ begin
   DrawCurrentBone;
   DrawCurrentMuscle; //TBD
   DrawJoints;
+  
   DrawLine(0, 3, 500, 3, clGreen);
   if not snappedCursor then  drawCursor;
 {  else DrawMarker(pt.x, pt.y, clGreen);}
@@ -2306,6 +2308,25 @@ begin
     1: DrawText(2, 2, '[ Bone ]', clBrWhite);
     2: DrawText(2, 2, '[Muscle]', clRed);
   end;
+
+    currTime := TThread.GetTickCount64;
+  if (currTime div 300) mod 2 = 0 then
+  begin
+    if selectedJoint <> nil then
+    begin
+      DrawLine(Round(selectedJoint^.x - 1), Round(selectedJoint^.y - 1), Round(selectedJoint^.x + 1), Round(selectedJoint^.y - 1), clMagenta);
+      DrawLine(Round(selectedJoint^.x - 1), Round(selectedJoint^.y),     Round(selectedJoint^.x + 1), Round(selectedJoint^.y),     clMagenta);
+      DrawLine(Round(selectedJoint^.x - 1), Round(selectedJoint^.y + 1), Round(selectedJoint^.x + 1), Round(selectedJoint^.y + 1), clMagenta);
+    end;
+
+    if selectedBone <> nil then
+      DrawLine(Round(selectedBone^.a^.x), Round(selectedBone^.a^.y),
+               Round(selectedBone^.b^.x), Round(selectedBone^.b^.y), clMagenta);
+  end;
+
+
+
+
   DrawText(1, 3, '[R]eset Camera     [Space]Place     [A/D]Switch Obj     [Z]Undo     [P]lay     [Backspace]Del Selected Obj     [Entf]Reset', clWhite);
   DrawText(1, 4, '[TAB]Save Menu     [M]Settings', clWhite);
 
