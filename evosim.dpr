@@ -1024,7 +1024,7 @@ begin
         mmuscles[s][i]^.target :=
           curM.target + a * (b - curM.target);
     end;
-  end);
+  end;
 end;
 {$ELSE}
 procedure Controller(dt: Single);
