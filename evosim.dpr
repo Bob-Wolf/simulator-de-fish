@@ -1,4 +1,4 @@
-﻿{$IFDEF FPC}
+{$IFDEF FPC}
   {$MODE DELPHI}
   {$H+}
 {$ENDIF}
@@ -2008,7 +2008,7 @@ end;
 procedure mode2;
 var
   txt: String;
-  i: Integer;
+  i, j: Integer;
   bestCurrent: Single;
 begin
   currTime := TThread.GetTickCount64;
@@ -2060,6 +2060,27 @@ begin
   DrawText(25, 2, txt, clWhite);
   txt := Format('[Position] %.2f', [currPos[0]]);
   DrawText(55, 2, txt, clWhite);
+
+  DrawText(14, 1, '[', clWhite);
+
+  for i := 0 to Round(82) do
+  begin
+    DrawText(15+i, 1, '∘', clWhite);
+  end;
+
+  for i := 0 to Round((time / runTime)*82-0.5) do
+  begin
+    DrawText(15+i, 1, '●', clWhite);
+  end;
+  for i := 0 to Round((time / runTime)*82-40.5) do
+  begin
+    DrawText(15+i, 1, '•', clWhite);
+  end;
+  DrawText(Round(15+82/2), 1, '|', clWhite);
+  DrawText(15+Round((time / runTime)*82+0.5), 1, '⬤', clWhite);
+  
+  DrawText(98, 1, ']', clWhite);
+
   if bResetCamera then resetCamera(FRAME_DT);
 end;
 
