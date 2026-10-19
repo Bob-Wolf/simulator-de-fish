@@ -1,4 +1,4 @@
-﻿{$IFDEF FPC}
+{$IFDEF FPC}
   {$MODE DELPHI}
   {$H+}
 {$ENDIF}
@@ -93,7 +93,7 @@ var
   keyDown:   array[0..255] of Boolean;   // gerade gedrückt?
   keyWasDown: array[0..255] of Boolean;
   //avgSpeed, currSpeed, prevPos,, speedAmts : Single;
-  avgSpeed, currSpeed, speedAmts, currPos, startPos : array of Single;
+  avgSpeed, currSpeed, speedAmts, currPos, currY, startPos : array of Single;
   globalHighScore: Single = 0;
   globalHighScore2: Single = 0;
   globalLowScore: Single = 0;
@@ -876,6 +876,39 @@ begin
   //WriteLn(Round(getAngleOffBone(bone)));
 end;
 
+
+function CreatureCenterY(creatureIndex: Integer): Single;
+var
+  j: Integer;
+  invMass: Single;
+  mass, totalMass, weightedY: Double;
+begin
+  weightedY := 0;
+  totalMass := 0;
+
+  for j := 0 to High(joints) do
+  begin
+    invMass := mjoints[creatureIndex][j]^.invMass;
+
+    // invMass ist die inverse Masse.
+    // Festgehaltene Gelenke (invMass = 0) ignorieren.
+    if invMass > 0 then
+    begin
+      mass := 1.0 / invMass;
+
+      weightedY :=
+        weightedY + mjoints[creatureIndex][j]^.y * mass;
+
+      totalMass := totalMass + mass;
+    end;
+  end;
+
+  if totalMass > 0 then
+    Result := weightedY / totalMass
+  else
+    Result := 0;
+end;
+
 function CreatureCenterX(creatureIndex: Integer): Single;
 var
   j: Integer;
@@ -1319,6 +1352,12 @@ begin
     // Bisher besten Vorwärtsfortschritt behalten
     if displacement > currPos[i] then
       currPos[i] := displacement;
+
+    displacement := CreatureCenterY(i) - startPos[i];
+
+    // Bisher besten Vorwärtsfortschritt behalten
+    if displacement > currY[i] then
+      currY[i] := displacement;
   end;
 end;
 
@@ -1539,6 +1578,7 @@ begin
   SetLength(avgSpeed, creatureAMT);
   SetLength(speedAmts, creatureAMT);
   SetLength(currPos, creatureAMT);
+  SetLength(currY, creatureAMT);
   SetLength(startPos, creatureAMT);
 
   time := 0;
@@ -1666,6 +1706,7 @@ begin
   begin
     startPos[i] := CreatureCenterX(i);
 
+    currY[i] := 0;
     currPos[i] := 0;
     currSpeed[i] := 0;
     avgSpeed[i] := 0;
@@ -1693,6 +1734,7 @@ begin
     for i:=0 to High(speedAmts) do begin
       speedAmts[i] := 0;
       currPos[i] := 0;
+      currY[i] := 0;
       globalHighScore := -100000;
       globalHighScore2 := -100000;
       globalLowScore := 10000000;
