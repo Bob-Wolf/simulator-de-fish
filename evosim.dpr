@@ -77,6 +77,9 @@ const
 
 
 var
+  mode2RenderMode : Integer = 1;
+  bestCurrent : Single = 0;
+  worstCurrent : Single = 0;
   runTime : Single = 20;
   FRICTION : Single = 0.8;
   map2_width : Single = 140;
@@ -92,6 +95,8 @@ var
   //avgSpeed, currSpeed, prevPos,, speedAmts : Single;
   avgSpeed, currSpeed, speedAmts, currPos, startPos : array of Single;
   globalHighScore: Single = 0;
+  globalHighScore2: Single = 0;
+  globalLowScore: Single = 0;
   curX, curY: Single;
   firstJoint: Pjoint;
   selectedJoint: Pjoint;
@@ -217,6 +222,32 @@ begin
   x2 := Round(x2 - camx);
   y1 := Round(y1 - camy);
   y2 := Round(y2 - camy);
+  // Das zuletzt Gedrawte bestimmt die Farbe (z.B. rote Linie -> alles rot)
+  //curColor := color;
+  if (x1 = x2) and (y1 = y2) then
+    Exit();
+  dx := Abs(x2 - x1);
+  dy := -Abs(y2 - y1);
+  if x1 < x2 then sx := 1 else sx := -1;
+  if y1 < y2 then sy := 1 else sy := -1;
+  err := dx + dy;
+  while True do
+  begin
+    DrawPixel(x1, y1, color);
+    if (x1 = x2) and (y1 = y2) then Break;
+    e2 := 2 * err;
+    if e2 >= dy then begin err := err + dy; x1 := x1 + sx; end;
+    if e2 <= dx then begin err := err + dx; y1 := y1 + sy; end;
+  end;
+end;
+procedure DrawLineTrue(x1, y1, x2, y2: Integer; color: Byte = clBrWhite);
+var
+  dx, dy, sx, sy, err, e2: Integer;
+begin
+  x1 := Round(x1 - 0);
+  x2 := Round(x2 - 0);
+  y1 := Round(y1 - 0);
+  y2 := Round(y2 - 0);
   // Das zuletzt Gedrawte bestimmt die Farbe (z.B. rote Linie -> alles rot)
   //curColor := color;
   if (x1 = x2) and (y1 = y2) then
@@ -415,10 +446,30 @@ begin
   //cx := Round((i - camx) / 2 - 1);
   //cy := Round(HEIGHT - 1 - camy / 4);
   //if (cx > -5) and (cx < WIDTH) and (cy >= 20) and (cy < HEIGHT) then
-    DrawText(Round((i-camx)/2-1), Round(HEIGHT-1-camy/4), txt, clWhite);
+    DrawText(Round((i-camx)/2-1), Round(HEIGHT-1-camy/4), string(txt), clWhite);
   end;
   end;
   //WriteLn('::', Round(camx), '  ', Round(camy));
+end;
+
+procedure DrawOverview();
+var ccolor : Integer;
+begin
+  ccolor := clGreen;
+  if (friction <= 0.3) then ccolor := clBrBlue;
+  DrawLineTrue(40, 132, 240, 132, ccolor);
+
+  DrawLineTrue(40+Round(400/12), 132, 40+Round(400/12), 138, clGray);
+  DrawLineTrue(40+Round((globalHighScore2+400)/12), 132, 40+Round((globalHighScore2+400)/12), 138, clGray);
+
+  DrawLineTrue(40+Round((globalLowScore+400)/12), 132, 40+Round((globalLowScore+400)/12), 138, clBrRed);
+
+  DrawLineTrue(40+Round((globalHighScore+400)/12), 132, 40+Round((globalHighScore+400)/12), 138, clYellow);
+  
+  DrawLineTrue(40+Round((camx+400)/12), 132, 40+Round((camx+400)/12), 138, clWhite);
+  DrawLineTrue(40+Round((camx+270+400)/12), 132, 40+Round((camx+400+270)/12), 138, clWhite);
+
+  //DrawLine(-300, 80, 300, 80, ccolor);
 end;
 
 procedure DrawMap();
@@ -431,6 +482,9 @@ ccolor := clGreen;
     1: DrawMap2(ccolor);
     //2: DrawMap3;
   end;
+  DrawLine(Round(globalHighScore2), 4, Round(globalHighScore2), 140, clGray);
+  DrawLine(Round(globalLowScore), 4, Round(globalLowScore), 140, clBrRed);
+  DrawLine(Round(globalHighScore), 4, Round(globalHighScore), 140, clYellow);
 
 end;
 
@@ -479,7 +533,11 @@ procedure DrawMBones();
 var
   i,j:Integer;
 begin
+
   for j:=0 to High(mbones) do
+  begin
+
+  if (mode2RenderMode = 0) or ((mode2RenderMode = 1)and((currPos[j] = bestCurrent)or(currPos[j] = worstCurrent))) then
   begin
   for i:=0 to High(bones) do
   begin
@@ -487,6 +545,7 @@ begin
     //DrawLine(Round(mbones[1][i]^.a.x), Round(mbones[1][i]^.a.y), Round(mbones[1][i]^.b.x), Round(mbones[1][i]^.b.y), clGray);
   end;
   //WriteLn(RounD(mbones[0][i]^.a.x), '    ', RounD(mbones[0][i]^.a.y));
+  end;
   end;
 end;
 
@@ -1379,7 +1438,7 @@ const
 begin
   if not camTargetSet then
   begin
-    camTarget := currPos[0] - 141;
+    camTarget := bestCurrent - 141;
     camTargetSet := True;
   end;
 
@@ -1634,7 +1693,9 @@ begin
     for i:=0 to High(speedAmts) do begin
       speedAmts[i] := 0;
       currPos[i] := 0;
-      globalHighScore := 0;
+      globalHighScore := -100000;
+      globalHighScore2 := -100000;
+      globalLowScore := 10000000;
     end;
     bResetCamera := True;
     camx := -141;
@@ -1885,10 +1946,13 @@ begin
     BestFitnesses[i].Index := i;
   end;
 
+  globalHighScore2 := globalHighScore;
   for i := 0 to creatureAMT - 1 do
   begin
     if currPos[i] > globalHighScore then
       globalHighScore := currPos[i];
+    if currPos[i] < globalLowScore then
+      globalLowScore := currPos[i];
   end;
 
   for i := 0 to creatureAMT - 1 - 1 do
@@ -2009,7 +2073,6 @@ procedure mode2;
 var
   txt: String;
   i, j: Integer;
-  bestCurrent: Single;
 begin
   currTime := TThread.GetTickCount64;
   realDT := (currTime - prevTime) / 1000;
@@ -2030,20 +2093,25 @@ begin
     accumulator := accumulator - FRAME_DT;
   end;
   if time > runTime then endOfGeneration;
-  playerInputsSim;
-  DrawMBones;
-  //DrawMuscles;
-  DrawMap;
-  drawCursor;
-
-  // Besten Fortschritt der aktuellen Generation ermitteln
   bestCurrent := 0;
+  worstCurrent := 10000000;
 
   for i := 0 to High(currPos) do
   begin
     if currPos[i] > bestCurrent then
       bestCurrent := currPos[i];
+    if currPos[i] < worstCurrent then
+      worstCurrent := currPos[i];
   end;
+  playerInputsSim;
+  DrawMBones;
+  //DrawMuscles;
+  DrawMap;
+  DrawOverview;
+  drawCursor;
+
+  // Besten Fortschritt der aktuellen Generation ermitteln
+  
 
   // Trainingsinformationen anzeigen
   txt := Format(
