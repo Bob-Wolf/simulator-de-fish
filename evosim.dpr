@@ -1,4 +1,4 @@
-{$IFDEF FPC}
+﻿{$IFDEF FPC}
   {$MODE DELPHI}
   {$H+}
 {$ENDIF}
@@ -1990,7 +1990,7 @@ begin
 
     NewWeights[i][4] := Weights[BestFitnesses[i].Index][4];
 
-    NewWeights[i][5] := Weights[BestFitnesses[i].Index][4];
+    NewWeights[i][5] := Weights[BestFitnesses[i].Index][5];
 
     NewBiases[i] :=
       Biases[BestFitnesses[i].Index];
