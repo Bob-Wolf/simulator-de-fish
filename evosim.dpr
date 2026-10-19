@@ -1,4 +1,4 @@
-﻿{$IFDEF FPC}
+{$IFDEF FPC}
   {$MODE DELPHI}
   {$H+}
 {$ENDIF}
@@ -56,6 +56,7 @@ type
 
 const
 
+
   RESTITUTION = 0;   // 0 = kleben, 0.5 = Gummiball
   WIDTH  = 140;         // Braille-Zellen horizontal
   HEIGHT = 39;          // Braille-Zellen vertikal
@@ -75,7 +76,9 @@ const
   SUBSTEPS = 4;
   SOLVER_ITER = 4;
 
-
+  CreatureColors: array[0..9] of Byte =
+    (clYellow, clBrGreen, clBrCyan, clMagenta, clBrRed,
+     clGreen, clCyan, clBrBlue, clBrMag, clWhite);
 var
   showCreatureProcentage : Single = 1;
   mode2RenderMode : Integer = 0;
@@ -241,6 +244,9 @@ begin
     if e2 <= dx then begin err := err + dx; y1 := y1 + sy; end;
   end;
 end;
+
+
+
 procedure DrawLineTrue(x1, y1, x2, y2: Integer; color: Byte = clBrWhite);
 var
   dx, dy, sx, sy, err, e2: Integer;
@@ -545,7 +551,7 @@ or {(mode2RenderMode = 1)}
    {and} ((currPos[j] = bestCurrent) or (currPos[j] = worstCurrent)) then begin
         for i:=0 to High(bones) do
         begin
-          DrawLine(Round(mbones[j][i]^.a.x), Round(mbones[j][i]^.a.y), Round(mbones[j][i]^.b.x), Round(mbones[j][i]^.b.y), j{clBrWhite});
+          DrawLine(Round(mbones[j][i]^.a.x), Round(mbones[j][i]^.a.y), Round(mbones[j][i]^.b.x), Round(mbones[j][i]^.b.y), CreatureColors[j mod Length(CreatureColors)]{clBrWhite});
         //DrawLine(Round(mbones[1][i]^.a.x), Round(mbones[1][i]^.a.y), Round(mbones[1][i]^.b.x), Round(mbones[1][i]^.b.y), clGray);
         end;
       //WriteLn(RounD(mbones[0][i]^.a.x), '    ', RounD(mbones[0][i]^.a.y));
@@ -2253,7 +2259,7 @@ begin
     2: DrawText(2, 2, '[Muscle]', clRed);
   end;
   DrawText(1, 3, '[R]eset Camera     [Space]Place     [A/D]Switch Obj     [Z]Undo     [P]lay     [Backspace]Del Selected Obj     [Entf]Reset', clWhite);
-  DrawText(1, 4, '[TAB]Save Menu', clWhite);
+  DrawText(1, 4, '[TAB]Save Menu     [M]Settings', clWhite);
 
 end;
 
@@ -2371,6 +2377,9 @@ begin
     end else if mode = 2 then
     begin
       mode2;
+    end else if mode = 4 then
+    begin
+      WriteLn('wow');//mode4; 
     end else if mode = 3 then
     begin
       mode3;
