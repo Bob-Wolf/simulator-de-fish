@@ -1,4 +1,4 @@
-{$IFDEF FPC}
+﻿{$IFDEF FPC}
   {$MODE DELPHI}
   {$H+}
 {$ENDIF}
@@ -958,74 +958,24 @@ end;
 {$IFDEF FPC}
 procedure Controller(dt: Single);
 var
-  s, i: Integer;
-  a, b, n: Single;
-  curM: Tmuscle;
-  localCurrentPosVal: Double;
-  localCurrentSpeedVal: Double;
+  s, i, j, x, y:Integer;
+  a, b, n:Single;
+  curM:Tmuscle;
+  muscleIndex: Single;
+  angleA, angleB, relativeAngle: Double;
+
+  localCurrentPosVal, localCurrentHeightVal, localCurrentSpeedVal: Double;
   localSum: Double;
 begin
-
   for s := 0 to creatureAMT - 1 do
   begin
     Fitnesses[s] := 0;
-
-    localCurrentPosVal   := currPos[s] / 100.0;
+    localCurrentPosVal := currPos[s] / 100.0;
+    localCurrentHeightVal := currY[s] / 100.0;
     localCurrentSpeedVal := currSpeed[s] / 20.0;
 
     localCurrentPosVal := Max(-1.0, Min(1.0, localCurrentPosVal));
-    localCurrentSpeedVal := Max(-1.0, Min(1.0, localCurrentSpeedVal));
-
-    for i := 0 to High(mmuscles[s]) do
-    begin
-      localSum := Biases[s];
-
-      localSum := localSum +
-                  localCurrentPosVal * Weights[s][0];
-
-      localSum := localSum +
-                  localCurrentSpeedVal * Weights[s][1];
-
-      localSum := localSum +
-                  getMuscleValue(mmuscles[s][i]) *
-                  Weights[s][2];
-
-      curM := mmuscles[s][i]^;
-
-      n := Tanh(localSum);
-
-      b := curM.min_length +
-           ((n + 1) * 0.5) *
-           (curM.max_length - curM.min_length);
-
-      a := 1 - Exp(-dt / 0.1);
-
-      mmuscles[s][i]^.target :=
-        curM.target + a * (b - curM.target);
-    end;
-  end;
-end;
-{$ELSE}
-procedure Controller(dt: Single);
-var
-  s: Integer;
-begin
-  TParallel.For(0, creatureAMT - 1, procedure(s: Integer)
-  var
-    i, j, x, y:Integer;
-    a, b, n:Single;
-    curM:Tmuscle;
-    muscleIndex: Single;
-    angleA, angleB, relativeAngle: Double;
-
-    localCurrentPosVal, localCurrentSpeedVal: Double;
-    localSum: Double;
-  begin
-    Fitnesses[s] := 0;
-    localCurrentPosVal   := currPos[s] / 100.0;
-    localCurrentSpeedVal := currSpeed[s] / 20.0;
-
-    localCurrentPosVal := Max(-1.0, Min(1.0, localCurrentPosVal));
+    localCurrentHeightVal := Max(-1.0, Min(1.0, localCurrentHeightVal));
     localCurrentSpeedVal := Max(-1.0, Min(1.0, localCurrentSpeedVal));
 
     for i := 0 to High(muscles) do
@@ -1058,6 +1008,81 @@ begin
 
         localSum := localSum +
           Cos(relativeAngle) * Weights[s][5];
+
+        localSum := localSum + localCurrentHeightVal * Weights[s][6];
+
+        curM := mmuscles[s][i]^;
+
+        n := Tanh(localSum);
+
+        b := curM.min_length +
+             ((n + 1) * 0.5) *
+             (curM.max_length - curM.min_length);
+
+        a := 1 - Exp(-dt / 0.1);
+
+        mmuscles[s][i]^.target :=
+          curM.target + a * (b - curM.target);
+    end;
+  end);
+end;
+{$ELSE}
+procedure Controller(dt: Single);
+var
+  s: Integer;
+begin
+  TParallel.For(0, creatureAMT - 1, procedure(s: Integer)
+  var
+    i, j, x, y:Integer;
+    a, b, n:Single;
+    curM:Tmuscle;
+    muscleIndex: Single;
+    angleA, angleB, relativeAngle: Double;
+
+    localCurrentPosVal, localCurrentHeightVal, localCurrentSpeedVal: Double;
+    localSum: Double;
+  begin
+    Fitnesses[s] := 0;
+    localCurrentPosVal := currPos[s] / 100.0;
+    localCurrentHeightVal := currY[s] / 100.0;
+    localCurrentSpeedVal := currSpeed[s] / 20.0;
+
+    localCurrentPosVal := Max(-1.0, Min(1.0, localCurrentPosVal));
+    localCurrentHeightVal := Max(-1.0, Min(1.0, localCurrentHeightVal));
+    localCurrentSpeedVal := Max(-1.0, Min(1.0, localCurrentSpeedVal));
+
+    for i := 0 to High(muscles) do
+    begin
+        localSum := Biases[s];
+        localSum := localSum + localCurrentPosVal * Weights[s][0];
+        localSum := localSum + localCurrentSpeedVal * Weights[s][1];
+        localSum := localSum + getMuscleValue(mmuscles[s][i]) * Weights[s][2];
+        muscleIndex := 0;
+
+        if High(mmuscles[s]) > 0 then
+          muscleIndex :=
+            (2.0 * i / High(mmuscles[s])) - 1.0;
+
+        localSum :=
+          localSum + muscleIndex * Weights[s][3];
+
+        angleA := DegToRad(
+          getAngleOffBone(mmuscles[s][i]^.a)
+        );
+
+        angleB := DegToRad(
+          getAngleOffBone(mmuscles[s][i]^.b)
+        );
+
+        relativeAngle := angleA - angleB;
+
+        localSum := localSum +
+          Sin(relativeAngle) * Weights[s][4];
+
+        localSum := localSum +
+          Cos(relativeAngle) * Weights[s][5];
+
+        localSum := localSum + localCurrentHeightVal * Weights[s][6];
 
         curM := mmuscles[s][i]^;
 
@@ -1592,11 +1617,11 @@ begin
 
   generation := 0;
 
-  SetLength(Weights, creatureAMT, 6);
+  SetLength(Weights, creatureAMT, 7);
   SetLength(Biases, creatureAMT);
   SetLength(Fitnesses, creatureAMT);
   SetLength(BestFitnesses, creatureAMT);
-  SetLength(NewWeights, creatureAMT, 6);
+  SetLength(NewWeights, creatureAMT, 7);
   SetLength(NewBiases, creatureAMT);
 
   for i := 0 to creatureAMT - 1 do
@@ -1607,6 +1632,7 @@ begin
     Weights[i][3] := (Random * 2.0) - 1.0;
     Weights[i][4] := (Random * 2.0) - 1.0;
     Weights[i][5] := (Random * 2.0) - 1.0;
+    Weights[i][6] := (Random * 2.0) - 1.0;
 
     biases[i] := (Random * 2.0) - 1.0;
   end;
@@ -2149,6 +2175,8 @@ begin
 
     NewWeights[i][5] := Weights[BestFitnesses[i].Index][5];
 
+    NewWeights[i][6] := Weights[BestFitnesses[i].Index][6];
+
     NewBiases[i] :=
       Biases[BestFitnesses[i].Index];
   end;
@@ -2179,6 +2207,10 @@ begin
 
     NewWeights[childIndex][5] :=
       NewWeights[parentIndex][5] +
+      (Random * (mutationSize * 2)) - mutationSize;
+
+    NewWeights[childIndex][6] :=
+      NewWeights[parentIndex][6] +
       (Random * (mutationSize * 2)) - mutationSize;
 
     NewBiases[childIndex] :=
