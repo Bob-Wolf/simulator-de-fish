@@ -80,6 +80,7 @@ const
     (clYellow, clBrGreen, clBrCyan, clMagenta, clBrRed,
      clGreen, clCyan, clBrBlue, clBrMag, clWhite);
 var
+  showCreatureProcentageCur : Single = 1;
   showCreatureProcentage : Single = 1;
   mode2RenderMode : Integer = 0;
   bestCurrent : Single = 0;
@@ -733,14 +734,12 @@ var
   x, y, invMass: Single;
   rl, st, mn, mx, sf, fq, ph: Single;
 begin
-  ClearCreature;
   AssignFile(f, filename);
-  {$I-}
-  Reset(f);
-  {$I+}
-  if IOResult <> 0 then Exit;   // Datei fehlt
+  {$I-} Reset(f); {$I+}
+  if IOResult <> 0 then Exit;
 
-  ReadLn(f, n);                 // Zahl, nichts anderes
+  ClearCreature;
+  ReadLn(f, n);
   for i := 0 to n-1 do
   begin
     ReadLn(f, x, y, invMass);
@@ -763,6 +762,55 @@ begin
 
   CloseFile(f);
 end;
+
+procedure DrawPreview(slot: Integer);
+var
+  i: Integer;
+  minX, minY, maxX, maxY, cx, cy: Single;
+  oldCamX, oldCamY: Single;
+  fname: string;
+begin
+  fname := Format('%s%dcreature.lol', [ExePath, slot]);
+
+  if not FileExists(fname) then
+  begin
+    DrawText(80, 20, '[keine Vorschau]', clGray);
+    Exit;
+  end;
+
+  SaveCreature(ExePath + 'preview_backup.lol');
+  oldCamX := camx;  oldCamY := camy;
+
+  LoadCreature(fname);
+  if Length(joints) = 0 then
+  begin
+    camx := oldCamX;  camy := oldCamY;
+    DrawText(80, 20, '[keine Vorschau]', clGray);
+    Exit;
+  end;
+
+  minX := joints[0]^.x;  maxX := joints[0]^.x;
+  minY := joints[0]^.y;  maxY := joints[0]^.y;
+  for i := 1 to High(joints) do begin
+    if joints[i]^.x < minX then minX := joints[i]^.x;
+    if joints[i]^.x > maxX then maxX := joints[i]^.x;
+    if joints[i]^.y < minY then minY := joints[i]^.y;
+    if joints[i]^.y > maxY then maxY := joints[i]^.y;
+  end;
+
+  cx := (minX + maxX) / 2;
+  cy := (minY + maxY) / 2;
+  camx := cx - 225;
+  camy := cy - 80;
+
+  DrawBones;
+  DrawMuscles;
+  DrawJoints;
+
+  LoadCreature(ExePath + 'preview_backup.lol');
+  camx := oldCamX;  camy := oldCamY;
+end;
+
 
 
 procedure DeleteLastJoint;
@@ -1926,7 +1974,6 @@ end;
 
 
 
-
 procedure playerInputsSave;
 var
   i:Integer;
@@ -1956,14 +2003,15 @@ begin
     else DrawText(14, i+10, txt, clGray);
   end;
   //txt := Format('%d', [save_select]);
-  DrawText(2, 2, '[TAB]Draw Menu     [S]ave     [L]oad     [T]emporary Load', clWhite);
+  DrawText(2, 2, '[TAB]Draw Menu     [S]ave     [L]oad     ---[T]emporary Load---', clWhite);
 
   if KeyPressed(Ord('S'))  then begin SaveCreature(Format('%s%dcreature.lol', [ExePath, save_select]));  end;//GIG end;
   if (KeyPressed(Ord('L'))) then begin LoadCreature(Format('%s%dcreature.lol', [ExePath, save_select])); switchToDraw();end;
-  if KeyPressed(Ord('T')) then begin SaveCreature(ExePath + 'current.lol'); LoadCreature(Format('%s%dcreature.lol', [ExePath, save_select])); switchToDraw();tempLoaded := True; end;
+  //if KeyPressed(Ord('T')) then begin SaveCreature(ExePath + 'current.lol'); LoadCreature(Format('%s%dcreature.lol', [ExePath, save_select])); switchToDraw();tempLoaded := True; end;
   if KeyPressed(VK_UP)  then begin save_select := save_select - 1; if save_select <0 then save_select := 9; end;
   if KeyPressed(VK_DOWN)    then begin save_select := (save_select + 1) mod 10; end;
   if KeyPressed(VK_TAB) then switchToDraw();
+  DrawPreview(save_select);
 end;
 
 procedure playerInputsDraw;
@@ -2346,6 +2394,9 @@ begin
 
   if bResetCamera then resetCamera(FRAME_DT);
 end;
+
+
+
 
 procedure mode3;
 begin
