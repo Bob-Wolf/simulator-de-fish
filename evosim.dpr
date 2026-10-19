@@ -62,7 +62,7 @@ const
   VW = WIDTH  * 2;      // virtuelle Pixel horizontal
   VH = HEIGHT * 4;      // virtuelle Pixel vertikal
 
-  clBlack   = 16;   // xterm-Schwarz; 0 ist fuer "leer" reserviert
+  clBlack   = 16;   // xterm-Schwarz; 0 ist  "leer" reserviert
   clRed     = 196;  clBlue    = 21;  clGreen  = 46;  clCyan   = 51;
   clMagenta = 201;  clYellow  = 226; clWhite  = 231;
 
@@ -77,7 +77,8 @@ const
 
 
 var
-  mode2RenderMode : Integer = 1;
+  showCreatureProcentage : Single = 1;
+  mode2RenderMode : Integer = 0;
   bestCurrent : Single = 0;
   worstCurrent : Single = 0;
   runTime : Single = 20;
@@ -537,15 +538,19 @@ begin
   for j:=0 to High(mbones) do
   begin
 
-  if (mode2RenderMode = 0) or ((mode2RenderMode = 1)and((currPos[j] = bestCurrent)or(currPos[j] = worstCurrent))) then
-  begin
-  for i:=0 to High(bones) do
-  begin
-    DrawLine(Round(mbones[j][i]^.a.x), Round(mbones[j][i]^.a.y), Round(mbones[j][i]^.b.x), Round(mbones[j][i]^.b.y), j{clBrWhite});
-    //DrawLine(Round(mbones[1][i]^.a.x), Round(mbones[1][i]^.a.y), Round(mbones[1][i]^.b.x), Round(mbones[1][i]^.b.y), clGray);
-  end;
-  //WriteLn(RounD(mbones[0][i]^.a.x), '    ', RounD(mbones[0][i]^.a.y));
-  end;
+    if (mode2RenderMode = 0)
+   and (showCreatureProcentage > 0)
+   and (j mod Max(1, Round(100 / (showCreatureProcentage*100))) = 0)
+or {(mode2RenderMode = 1)}
+   {and} ((currPos[j] = bestCurrent) or (currPos[j] = worstCurrent)) then begin
+        for i:=0 to High(bones) do
+        begin
+          DrawLine(Round(mbones[j][i]^.a.x), Round(mbones[j][i]^.a.y), Round(mbones[j][i]^.b.x), Round(mbones[j][i]^.b.y), j{clBrWhite});
+        //DrawLine(Round(mbones[1][i]^.a.x), Round(mbones[1][i]^.a.y), Round(mbones[1][i]^.b.x), Round(mbones[1][i]^.b.y), clGray);
+        end;
+      //WriteLn(RounD(mbones[0][i]^.a.x), '    ', RounD(mbones[0][i]^.a.y));
+    end;
+
   end;
 end;
 
@@ -1721,6 +1726,73 @@ begin
   prevTime := TThread.GetTickCount64;
 end;
 
+
+function getSliderValueMouse(x, y, dx, dy : Single; vertical : Boolean = False): Single;
+begin
+  curX := pt.x / 1440 * VW;          // Screen-Koordinaten, KEINE Kamera
+  curY := VH - pt.y / 900 * VH;
+  if (curX < x+dx) and (curX > x) and (curY < y+dy) and (curY > y) then
+  begin
+    if vertical then
+      getSliderValueMouse := ((curY-y)/(dy))
+    else
+      getSliderValueMouse := ((curX-x)/dx);
+  end
+  else getSliderValueMouse := -1;
+end;
+
+function getCheckBoxValueMouse(x, y, dx, dy : Single): Boolean;
+begin
+  curX := pt.x / 1440 * VW;          // Screen-Koordinaten, KEINE Kamera
+  curY := VH - pt.y / 900 * VH;
+  if (curX < x+dx) and (curX > x) and (curY < y+dy) and (curY > y) then
+    getCheckBoxValueMouse := True
+  else
+    getCheckBoxValueMouse := False;
+end;
+
+procedure drawCheckBox(x, y, dx, dy : Single; _true : Boolean = False);
+var
+  i : Integer;
+begin
+  // Rahmen
+  DrawLineTrue(Round(x), Round(y), Round(x), Round(dy+y));
+  DrawLineTrue(Round(x), Round(y), Round(dx+x), Round(y));
+  DrawLineTrue(Round(dx+x), Round(y), Round(dx+x), Round(y+dy));
+  DrawLineTrue(Round(x+dx), Round(dy+y), Round(x), Round(dy+y));
+  // Infill: Border (1px) + Abstand (1px) -> 2px Einrückung
+  if _true then begin
+  DrawLineTrue(Round(x), Round(y), Round(dx+x), Round(y+dy));
+  DrawLineTrue(Round(x), Round(y+dy), Round(dx+x), Round(y));
+  end;
+end;
+
+procedure drawSlider(x, y, dx, dy, value : Single; vertical : Boolean = False; col: Integer = clWhite);
+var
+  i : Integer;
+begin
+  // Rahmen
+  DrawLineTrue(Round(x), Round(y), Round(x), Round(dy+y), col);
+  DrawLineTrue(Round(x), Round(y), Round(dx+x), Round(y), col);
+  DrawLineTrue(Round(dx+x), Round(y), Round(dx+x), Round(y+dy), col);
+  DrawLineTrue(Round(x+dx), Round(dy+y), Round(x), Round(dy+y), col);
+  // Infill: Border (1px) + Abstand (1px) -> 2px Einrückung
+  if value <> -1 then begin
+    if vertical = False then begin
+      for i := 2 to Round(dy)-2 do
+      begin
+        DrawLineTrue(Round(x)+2, Round(i+y), Max(Round(x+(value*(dx)))-2, Round(x)+2), Round(i+y), col);
+      end;
+    end else begin
+      for i := 2 to Round(dx)-2 do
+      begin
+        DrawLineTrue(Round(i+x), Round(y)+2, Round(i+x), Max(Round(y+(value*(dy)))-2, Round(y)+2), col);
+      end;
+    end;
+  end;
+end;
+
+
 procedure switchToSim();
 var i:Integer;
 begin
@@ -1766,7 +1838,41 @@ begin
 end;
 
 procedure playerInputsSim;
+var txt:String;
 begin
+  if (KeyPressed(Ord(' '))) and (getCheckBoxValueMouse(4, 16, 6, 6)) then mode2RenderMode := 1 - mode2RenderMode;
+  drawCheckBox(4, 16, 6, 6, mode2RenderMode = 0);
+
+  if (mode2RenderMode = 0) then begin
+  if (getSliderValueMouse(4, 25, 6, 24, True) <> -1) then
+    drawSlider(4, 25, 6, 24, getSliderValueMouse(4, 25, 6, 24, True), True, clWhite)
+  else
+    drawSlider(4, 25, 6, 24, showCreatureProcentage, True, clWhite);
+
+  if (KeyPressed(Ord(' '))) and (getSliderValueMouse(4, 25, 6, 24, True) <> -1) then
+  begin
+    showCreatureProcentage := getSliderValueMouse(4, 25, 6, 24, True);
+  end;
+  if (getSliderValueMouse(4, 25, 6, 24, True) <> -1) and (getSliderValueMouse(4, 25, 6, 24, True) <> showCreatureProcentage) then begin
+  txt := Format('%.0f', [getSliderValueMouse(4, 25, 6, 24, True)*100]);
+  txt := string(txt + '%');
+  DrawText(2, 25, string(txt), clGray);
+  end else
+  begin
+  txt := Format('%.0f', [showCreatureProcentage*100]);
+  txt := string(txt + '%');
+  DrawText(2, 25, string(txt), clWhite);
+  end;
+  end else begin
+    drawSlider(4, 25, 6, 24, showCreatureProcentage, True, clGray);
+    txt := Format('%.0f', [showCreatureProcentage*100]);
+    txt := string(txt + '%');
+    DrawText(2, 25, string(txt), clGray);
+  end;
+
+  //if (getCheckBoxValueMouse(4, 16, 6, 6)) then
+
+
   if KeyPressed(VK_ESCAPE) then Halt;
 
   // Kamera (gehalten)
@@ -1833,12 +1939,21 @@ var
   i: Integer;
   dist: Single;
   pr, r : Single;
+  txt:String;
 begin
   snappedCursor := False;
   if KeyPressed(VK_ESCAPE) then Halt;
 
   // Kamera-Reset-Taste (R): kein Edge nötig, aber frisch ist okay
   if KeyPressed(Ord('R')) then bResetCameraDrw := True;
+
+
+  //txt := Format('%.5f   |    %.2f   |   %.2f', [getSliderValueMouse(30, 50, 30, 80, true), curX, curY]);
+  //if getSliderValueMouse(30, 50, 30, 80, true) <> -1 then begin
+  //  DrawLineTrue(30, 50, 30+Round(getSliderValueMouse(30, 50, 30, 80, true)*30), 50);
+  //  DrawLineTrue(30, 50+80, 30+Round(getSliderValueMouse(30, 50, 30, 80, true)*30), 50+80);
+  //  end;
+  //DrawText(3,12, txt);
 
   // Cursor-Screen-Position und Snapping
   r := 4;
