@@ -1,4 +1,4 @@
-{$IFDEF FPC}
+﻿{$IFDEF FPC}
   {$MODE DELPHI}
   {$H+}
 {$ENDIF}
@@ -1912,6 +1912,11 @@ begin
     //SaveCreature(ExePath + 'creature.lol');
 end;
 
+procedure switchToSettings;
+begin
+  mode := 5;
+end;
+
 procedure playerInputsSim;
 var txt:String;
 begin
@@ -2009,6 +2014,52 @@ begin
   DrawPreview(save_select);
 end;
 
+procedure gameSettings;
+var
+  x: Integer;
+  txt: String;
+begin
+  DrawText(2, 2, '[TAB]Draw Menu', clWhite);
+
+  if (KeyPressed(Ord(' '))) and (getCheckBoxValueMouse(7, 134, 6, 6)) then
+  begin
+    level := 0;
+    SetLength(collisions, 0);
+    LoadMap1;
+  end;
+  drawCheckBox(7, 134, 6, 6, level = 0);
+  DrawText(8, 4, 'Map 1', clWhite);
+  if (KeyPressed(Ord(' '))) and (getCheckBoxValueMouse(7, 122, 6, 6)) then
+  begin
+    level := 1;
+    SetLength(collisions, 0);
+    LoadMap2;
+  end;
+  drawCheckBox(7, 122, 6, 6, level = 1);
+  DrawText(8, 7, 'Map 2', clWhite);
+
+  if (level = 1) then
+  begin
+    if (getSliderValueMouse(36, 122, 24, 6, False) <> -1) then
+      drawSlider(36, 122, 24, 6, getSliderValueMouse(36, 122, 24, 6, False), False, clWhite)
+    else
+      drawSlider(36, 122, 24, 6, (map2_height/100), False, clWhite);
+
+    if (KeyPressed(Ord(' '))) and (getSliderValueMouse(36, 122, 24, 6, False) <> -1) then
+    begin
+      map2_height := (getSliderValueMouse(36, 122, 24, 6, False) * 100);
+
+      SetLength(collisions, 0);
+      LoadMap2;
+    end;
+  end else
+  begin
+    drawSlider(36, 122, 24, 6, (map2_height/100), False, clGray);
+  end;
+
+  if KeyPressed(VK_TAB) then switchToDraw();
+end;
+
 procedure playerInputsDraw;
 var
   i: Integer;
@@ -2070,6 +2121,11 @@ begin
     SetLength(strgzable, Length(strgzable) - 1);
   end;
 
+  // ---- Settings ----
+  if KeyPressed(Ord('M')) then
+  begin
+    switchToSettings;
+  end;
 
   // ---- Save / Load ----
   if KeyPressed(VK_TAB) then
@@ -2425,6 +2481,12 @@ begin
 end;
 
 
+procedure mode5;
+begin
+  gameSettings;
+  if not snappedCursor then  drawCursor;
+end;
+
 begin
   InitTerminal;
   SetLength(pixColor, VW * VH);
@@ -2455,6 +2517,10 @@ begin
     end else if mode = 3 then
     begin
       mode3;
+    end
+    else if mode = 5 then
+    begin
+      mode5;
     end;
 
     Draw;

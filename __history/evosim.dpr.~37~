@@ -56,13 +56,14 @@ type
 
 const
 
+
   RESTITUTION = 0;   // 0 = kleben, 0.5 = Gummiball
   WIDTH  = 140;         // Braille-Zellen horizontal
   HEIGHT = 39;          // Braille-Zellen vertikal
   VW = WIDTH  * 2;      // virtuelle Pixel horizontal
   VH = HEIGHT * 4;      // virtuelle Pixel vertikal
 
-  clBlack   = 16;   // xterm-Schwarz; 0 ist fuer "leer" reserviert
+  clBlack   = 16;   // xterm-Schwarz; 0 ist  "leer" reserviert
   clRed     = 196;  clBlue    = 21;  clGreen  = 46;  clCyan   = 51;
   clMagenta = 201;  clYellow  = 226; clWhite  = 231;
 
@@ -73,10 +74,17 @@ const
   dampening = 0.97;
   FRAME_DT = 2/60;
   SUBSTEPS = 4;
-  SOLVER_ITER = 4;
+  SOLVER_ITER = 12;
 
-
+  CreatureColors: array[0..9] of Byte =
+    (clYellow, clBrGreen, clBrCyan, clMagenta, clBrRed,
+     clGreen, clCyan, clBrBlue, clBrMag, clWhite);
 var
+  showCreatureProcentageCur : Single = 1;
+  showCreatureProcentage : Single = 1;
+  mode2RenderMode : Integer = 0;
+  bestCurrent : Single = 0;
+  worstCurrent : Single = 0;
   runTime : Single = 20;
   FRICTION : Single = 0.8;
   map2_width : Single = 140;
@@ -90,8 +98,10 @@ var
   keyDown:   array[0..255] of Boolean;   // gerade gedrückt?
   keyWasDown: array[0..255] of Boolean;
   //avgSpeed, currSpeed, prevPos,, speedAmts : Single;
-  avgSpeed, currSpeed, speedAmts, currPos, startPos : array of Single;
+  avgSpeed, currSpeed, speedAmts, currPos, currY, startPos : array of Single;
   globalHighScore: Single = 0;
+  globalHighScore2: Single = 0;
+  globalLowScore: Single = 0;
   curX, curY: Single;
   firstJoint: Pjoint;
   selectedJoint: Pjoint;
@@ -157,7 +167,7 @@ pNow: Boolean; //MOVE123 /ROTATE /EDIT PRECISE/ COPY-PASTE /min dist between joi
   parentIndex:      Integer;
 
   rewardBalance:    Double = 0.05;
-  mutationSize:     Double = 0.3;
+  mutationSize:     Double = 0.2;
 
   // Neural Network Logic End
 
@@ -217,6 +227,35 @@ begin
   x2 := Round(x2 - camx);
   y1 := Round(y1 - camy);
   y2 := Round(y2 - camy);
+  // Das zuletzt Gedrawte bestimmt die Farbe (z.B. rote Linie -> alles rot)
+  //curColor := color;
+  if (x1 = x2) and (y1 = y2) then
+    Exit();
+  dx := Abs(x2 - x1);
+  dy := -Abs(y2 - y1);
+  if x1 < x2 then sx := 1 else sx := -1;
+  if y1 < y2 then sy := 1 else sy := -1;
+  err := dx + dy;
+  while True do
+  begin
+    DrawPixel(x1, y1, color);
+    if (x1 = x2) and (y1 = y2) then Break;
+    e2 := 2 * err;
+    if e2 >= dy then begin err := err + dy; x1 := x1 + sx; end;
+    if e2 <= dx then begin err := err + dx; y1 := y1 + sy; end;
+  end;
+end;
+
+
+
+procedure DrawLineTrue(x1, y1, x2, y2: Integer; color: Byte = clBrWhite);
+var
+  dx, dy, sx, sy, err, e2: Integer;
+begin
+  x1 := Round(x1 - 0);
+  x2 := Round(x2 - 0);
+  y1 := Round(y1 - 0);
+  y2 := Round(y2 - 0);
   // Das zuletzt Gedrawte bestimmt die Farbe (z.B. rote Linie -> alles rot)
   //curColor := color;
   if (x1 = x2) and (y1 = y2) then
@@ -415,10 +454,30 @@ begin
   //cx := Round((i - camx) / 2 - 1);
   //cy := Round(HEIGHT - 1 - camy / 4);
   //if (cx > -5) and (cx < WIDTH) and (cy >= 20) and (cy < HEIGHT) then
-    DrawText(Round((i-camx)/2-1), Round(HEIGHT-1-camy/4), txt, clWhite);
+    DrawText(Round((i-camx)/2-1), Round(HEIGHT-1-camy/4), string(txt), clWhite);
   end;
   end;
   //WriteLn('::', Round(camx), '  ', Round(camy));
+end;
+
+procedure DrawOverview();
+var ccolor : Integer;
+begin
+  ccolor := clGreen;
+  if (friction <= 0.3) then ccolor := clBrBlue;
+  DrawLineTrue(40, 132, 240, 132, ccolor);
+
+  DrawLineTrue(40+Round(400/12), 132, 40+Round(400/12), 138, clGray);
+  DrawLineTrue(40+Round((globalHighScore2+400)/12), 132, 40+Round((globalHighScore2+400)/12), 138, clGray);
+
+  DrawLineTrue(40+Round((globalLowScore+400)/12), 132, 40+Round((globalLowScore+400)/12), 138, clBrRed);
+
+  DrawLineTrue(40+Round((globalHighScore+400)/12), 132, 40+Round((globalHighScore+400)/12), 138, clYellow);
+  
+  DrawLineTrue(40+Round((camx+400)/12), 132, 40+Round((camx+400)/12), 138, clWhite);
+  DrawLineTrue(40+Round((camx+270+400)/12), 132, 40+Round((camx+400+270)/12), 138, clWhite);
+
+  //DrawLine(-300, 80, 300, 80, ccolor);
 end;
 
 procedure DrawMap();
@@ -431,6 +490,9 @@ ccolor := clGreen;
     1: DrawMap2(ccolor);
     //2: DrawMap3;
   end;
+  DrawLine(Round(globalHighScore2), 4, Round(globalHighScore2), 140, clGray);
+  DrawLine(Round(globalLowScore), 4, Round(globalLowScore), 140, clBrRed);
+  DrawLine(Round(globalHighScore), 4, Round(globalHighScore), 140, clYellow);
 
 end;
 
@@ -479,14 +541,23 @@ procedure DrawMBones();
 var
   i,j:Integer;
 begin
+
   for j:=0 to High(mbones) do
   begin
-  for i:=0 to High(bones) do
-  begin
-    DrawLine(Round(mbones[j][i]^.a.x), Round(mbones[j][i]^.a.y), Round(mbones[j][i]^.b.x), Round(mbones[j][i]^.b.y), j{clBrWhite});
-    //DrawLine(Round(mbones[1][i]^.a.x), Round(mbones[1][i]^.a.y), Round(mbones[1][i]^.b.x), Round(mbones[1][i]^.b.y), clGray);
-  end;
-  //WriteLn(RounD(mbones[0][i]^.a.x), '    ', RounD(mbones[0][i]^.a.y));
+
+    if (mode2RenderMode = 0)
+   and (showCreatureProcentage > 0)
+   and (j mod Max(1, Round(100 / (showCreatureProcentage*100))) = 0)
+or {(mode2RenderMode = 1)}
+   {and} ((currPos[j] = bestCurrent) or (currPos[j] = worstCurrent)) then begin
+        for i:=0 to High(bones) do
+        begin
+          DrawLine(Round(mbones[j][i]^.a.x), Round(mbones[j][i]^.a.y), Round(mbones[j][i]^.b.x), Round(mbones[j][i]^.b.y), CreatureColors[j mod Length(CreatureColors)]{clBrWhite});
+        //DrawLine(Round(mbones[1][i]^.a.x), Round(mbones[1][i]^.a.y), Round(mbones[1][i]^.b.x), Round(mbones[1][i]^.b.y), clGray);
+        end;
+      //WriteLn(RounD(mbones[0][i]^.a.x), '    ', RounD(mbones[0][i]^.a.y));
+    end;
+
   end;
 end;
 
@@ -539,14 +610,13 @@ var
   ia, ib: Integer;
 begin
   AssignFile(f, filename);
-  Rewrite(f);
+  {$I-} Rewrite(f); {$I+}
+  if IOResult <> 0 then Exit;
 
-  // Joints: x y invMass
   WriteLn(f, Length(joints));
   for i := 0 to High(joints) do
     WriteLn(f, joints[i]^.x, ' ', joints[i]^.y, ' ', joints[i]^.invMass);
 
-  // Bones: indexA indexB rest_length stiffness
   WriteLn(f, Length(bones));
   for i := 0 to High(bones) do
   begin
@@ -555,7 +625,6 @@ begin
     WriteLn(f, ia, ' ', ib, ' ', bones[i]^.rest_length, ' ', bones[i]^.stiffness);
   end;
 
-  // Muscles: indexA indexB min max stiffness freq phase
   WriteLn(f, Length(muscles));
   for i := 0 to High(muscles) do
   begin
@@ -567,11 +636,8 @@ begin
   end;
 
   CloseFile(f);
-
-  //WriteLn('Gespeichert: ', Length(joints), ' joints, ',
-  //        Length(bones), ' bones, ', Length(muscles), ' muscles -> ',
-  //        ExpandFileName(filename));
 end;
+
 
 procedure ClearCreature;
 var
@@ -585,6 +651,7 @@ begin
   firstJoint := nil; selectedJoint := nil;
   firstBone := nil;  selectedBone := nil;
 end;
+
 
 
 //======================= HELPER FUNCTIONS =====================================
@@ -663,14 +730,13 @@ var
   x, y, invMass: Single;
   rl, st, mn, mx, sf, fq, ph: Single;
 begin
-  ClearCreature;
   AssignFile(f, filename);
-  {$I-}
-  Reset(f);
-  {$I+}
-  if IOResult <> 0 then Exit;   // Datei fehlt
+  {$I-} Reset(f); {$I+}
+  if IOResult <> 0 then Exit;
 
-  ReadLn(f, n);                 // Zahl, nichts anderes
+  ClearCreature;
+
+  ReadLn(f, n);
   for i := 0 to n-1 do
   begin
     ReadLn(f, x, y, invMass);
@@ -693,6 +759,57 @@ begin
 
   CloseFile(f);
 end;
+
+
+procedure DrawPreview(slot: Integer);
+var
+  i: Integer;
+  minX, minY, maxX, maxY, cx, cy: Single;
+  oldCamX, oldCamY: Single;
+  fname: string;
+begin
+  fname := Format('%s%dcreature.lol', [ExePath, slot]);
+
+  if not FileExists(fname) then
+  begin
+    DrawText(80, 20, '[keine Vorschau]', clGray);
+    Exit;
+  end;
+
+  SaveCreature(ExePath + 'preview_backup.lol');
+  oldCamX := camx;  oldCamY := camy;
+
+  LoadCreature(fname);
+  if Length(joints) = 0 then
+  begin
+    LoadCreature(ExePath + 'preview_backup.lol');
+    camx := oldCamX;  camy := oldCamY;
+    DrawText(80, 20, '[keine Vorschau]', clGray);
+    Exit;
+  end;
+
+  minX := joints[0]^.x;  maxX := joints[0]^.x;
+  minY := joints[0]^.y;  maxY := joints[0]^.y;
+  for i := 1 to High(joints) do begin
+    if joints[i]^.x < minX then minX := joints[i]^.x;
+    if joints[i]^.x > maxX then maxX := joints[i]^.x;
+    if joints[i]^.y < minY then minY := joints[i]^.y;
+    if joints[i]^.y > maxY then maxY := joints[i]^.y;
+  end;
+
+  cx := (minX + maxX) / 2;
+  cy := (minY + maxY) / 2;
+  camx := cx - 225;
+  camy := cy - 80;
+
+  DrawBones;
+  DrawMuscles;
+  DrawJoints;
+
+  LoadCreature(ExePath + 'preview_backup.lol');
+  camx := oldCamX;  camy := oldCamY;
+end;
+
 
 
 procedure DeleteLastJoint;
@@ -817,6 +934,39 @@ begin
   //WriteLn(Round(getAngleOffBone(bone)));
 end;
 
+
+function CreatureCenterY(creatureIndex: Integer): Single;
+var
+  j: Integer;
+  invMass: Single;
+  mass, totalMass, weightedY: Double;
+begin
+  weightedY := 0;
+  totalMass := 0;
+
+  for j := 0 to High(joints) do
+  begin
+    invMass := mjoints[creatureIndex][j]^.invMass;
+
+    // invMass ist die inverse Masse.
+    // Festgehaltene Gelenke (invMass = 0) ignorieren.
+    if invMass > 0 then
+    begin
+      mass := 1.0 / invMass;
+
+      weightedY :=
+        weightedY + mjoints[creatureIndex][j]^.y * mass;
+
+      totalMass := totalMass + mass;
+    end;
+  end;
+
+  if totalMass > 0 then
+    Result := weightedY / totalMass
+  else
+    Result := 0;
+end;
+
 function CreatureCenterX(creatureIndex: Integer): Single;
 var
   j: Integer;
@@ -861,50 +1011,71 @@ end;
 {$IFDEF FPC}
 procedure Controller(dt: Single);
 var
-  s, i: Integer;
-  a, b, n: Single;
-  curM: Tmuscle;
-  localCurrentPosVal: Double;
-  localCurrentSpeedVal: Double;
+  s, i, j, x, y:Integer;
+  a, b, n:Single;
+  curM:Tmuscle;
+  muscleIndex: Single;
+  angleA, angleB, relativeAngle: Double;
+
+  localCurrentPosVal, localCurrentHeightVal, localCurrentSpeedVal: Double;
   localSum: Double;
 begin
-
   for s := 0 to creatureAMT - 1 do
   begin
     Fitnesses[s] := 0;
-
-    localCurrentPosVal   := currPos[s] / 100.0;
+    localCurrentPosVal := currPos[s] / 100.0;
+    localCurrentHeightVal := currY[s] / 100.0;
     localCurrentSpeedVal := currSpeed[s] / 20.0;
 
     localCurrentPosVal := Max(-1.0, Min(1.0, localCurrentPosVal));
+    localCurrentHeightVal := Max(-1.0, Min(1.0, localCurrentHeightVal));
     localCurrentSpeedVal := Max(-1.0, Min(1.0, localCurrentSpeedVal));
 
-    for i := 0 to High(mmuscles[s]) do
+    for i := 0 to High(muscles) do
     begin
-      localSum := Biases[s];
+        localSum := Biases[s];
+        localSum := localSum + localCurrentPosVal * Weights[s][0];
+        localSum := localSum + localCurrentSpeedVal * Weights[s][1];
+        localSum := localSum + getMuscleValue(mmuscles[s][i]) * Weights[s][2];
+        muscleIndex := 0;
 
-      localSum := localSum +
-                  localCurrentPosVal * Weights[s][0];
+        if High(mmuscles[s]) > 0 then
+          muscleIndex :=
+            (2.0 * i / High(mmuscles[s])) - 1.0;
 
-      localSum := localSum +
-                  localCurrentSpeedVal * Weights[s][1];
+        localSum :=
+          localSum + muscleIndex * Weights[s][3];
 
-      localSum := localSum +
-                  getMuscleValue(mmuscles[s][i]) *
-                  Weights[s][2];
+        angleA := DegToRad(
+          getAngleOffBone(mmuscles[s][i]^.a)
+        );
 
-      curM := mmuscles[s][i]^;
+        angleB := DegToRad(
+          getAngleOffBone(mmuscles[s][i]^.b)
+        );
 
-      n := Tanh(localSum);
+        relativeAngle := angleA - angleB;
 
-      b := curM.min_length +
-           ((n + 1) * 0.5) *
-           (curM.max_length - curM.min_length);
+        localSum := localSum +
+          Sin(relativeAngle) * Weights[s][4];
 
-      a := 1 - Exp(-dt / 0.1);
+        localSum := localSum +
+          Cos(relativeAngle) * Weights[s][5];
 
-      mmuscles[s][i]^.target :=
-        curM.target + a * (b - curM.target);
+        localSum := localSum + localCurrentHeightVal * Weights[s][6];
+
+        curM := mmuscles[s][i]^;
+
+        n := Tanh(localSum);
+
+        b := curM.min_length +
+             ((n + 1) * 0.5) *
+             (curM.max_length - curM.min_length);
+
+        a := 1 - Exp(-dt / 0.1);
+
+        mmuscles[s][i]^.target :=
+          curM.target + a * (b - curM.target);
     end;
   end;
 end;
@@ -918,15 +1089,19 @@ begin
     i, j, x, y:Integer;
     a, b, n:Single;
     curM:Tmuscle;
+    muscleIndex: Single;
+    angleA, angleB, relativeAngle: Double;
 
-    localCurrentPosVal, localCurrentSpeedVal: Double;
+    localCurrentPosVal, localCurrentHeightVal, localCurrentSpeedVal: Double;
     localSum: Double;
   begin
     Fitnesses[s] := 0;
-    localCurrentPosVal   := currPos[s] / 100.0;
+    localCurrentPosVal := currPos[s] / 100.0;
+    localCurrentHeightVal := currY[s] / 100.0;
     localCurrentSpeedVal := currSpeed[s] / 20.0;
 
     localCurrentPosVal := Max(-1.0, Min(1.0, localCurrentPosVal));
+    localCurrentHeightVal := Max(-1.0, Min(1.0, localCurrentHeightVal));
     localCurrentSpeedVal := Max(-1.0, Min(1.0, localCurrentSpeedVal));
 
     for i := 0 to High(muscles) do
@@ -935,7 +1110,32 @@ begin
         localSum := localSum + localCurrentPosVal * Weights[s][0];
         localSum := localSum + localCurrentSpeedVal * Weights[s][1];
         localSum := localSum + getMuscleValue(mmuscles[s][i]) * Weights[s][2];
-        localSum := localSum + i * Weights[s][3];
+        muscleIndex := 0;
+
+        if High(mmuscles[s]) > 0 then
+          muscleIndex :=
+            (2.0 * i / High(mmuscles[s])) - 1.0;
+
+        localSum :=
+          localSum + muscleIndex * Weights[s][3];
+
+        angleA := DegToRad(
+          getAngleOffBone(mmuscles[s][i]^.a)
+        );
+
+        angleB := DegToRad(
+          getAngleOffBone(mmuscles[s][i]^.b)
+        );
+
+        relativeAngle := angleA - angleB;
+
+        localSum := localSum +
+          Sin(relativeAngle) * Weights[s][4];
+
+        localSum := localSum +
+          Cos(relativeAngle) * Weights[s][5];
+
+        localSum := localSum + localCurrentHeightVal * Weights[s][6];
 
         curM := mmuscles[s][i]^;
 
@@ -1235,6 +1435,12 @@ begin
     // Bisher besten Vorwärtsfortschritt behalten
     if displacement > currPos[i] then
       currPos[i] := displacement;
+
+    displacement := CreatureCenterY(i) - startPos[i];
+
+    // Bisher besten Vorwärtsfortschritt behalten
+    if displacement > currY[i] then
+      currY[i] := displacement;
   end;
 end;
 
@@ -1255,33 +1461,26 @@ begin
 end;
 procedure SolveMuscle(const m: Tmuscle; target, stiffness: Double);
 var
-  ax, ay, bx, by: Single;
-  dx, dy, len, diff, corr: Double;
+  ax, ay, bx, by, dx, dy, len, diff, corr: Double;
 begin
   ax := (m.a^.a^.x + m.a^.b^.x) * 0.5;
   ay := (m.a^.a^.y + m.a^.b^.y) * 0.5;
   bx := (m.b^.a^.x + m.b^.b^.x) * 0.5;
   by := (m.b^.a^.y + m.b^.b^.y) * 0.5;
 
-  dx := ax - bx;
-  dy := ay - by;
+  dx := ax - bx;  dy := ay - by;
   len := Sqrt(Sqr(dx) + Sqr(dy));
   if len < 0.0001 then Exit;
   diff := (len - target) / len;
   corr := diff * stiffness * 0.5;
 
-  // Bone a: Mitte rueckt Richtung b (bzw. weg, je nach Vorzeichen)
+  // Bone a: nur a-Endpunkt zieht Richtung Bone-b-Mitte, b-Endpunkt fix ...
   m.a^.a^.x := m.a^.a^.x - dx * corr;
   m.a^.a^.y := m.a^.a^.y - dy * corr;
-  m.a^.b^.x := m.a^.b^.x - dx * corr;
-  m.a^.b^.y := m.a^.b^.y - dy * corr;
-
-  // Bone b: gegenteilig
-  m.b^.a^.x := m.b^.a^.x + dx * corr;
-  m.b^.a^.y := m.b^.a^.y + dy * corr;
   m.b^.b^.x := m.b^.b^.x + dx * corr;
   m.b^.b^.y := m.b^.b^.y + dy * corr;
 end;
+
 
 
 procedure Constrains();
@@ -1354,7 +1553,7 @@ const
 begin
   if not camTargetSet then
   begin
-    camTarget := currPos[0] - 141;
+    camTarget := bestCurrent - 141;
     camTargetSet := True;
   end;
 
@@ -1427,22 +1626,24 @@ begin
   if IOResult = 0 then
   begin
     n := nj;
-    for i := 1 to n do ReadLn(f);          // Joint-Zeilen überspringen
+    for i := 1 to n do ReadLn(f);
     if IOResult = 0 then
     begin
       ReadLn(f, nb);
       if IOResult = 0 then
       begin
         n := nb;
-        for i := 1 to n do ReadLn(f);      // Bone-Zeilen überspringen
+        for i := 1 to n do ReadLn(f);
         if IOResult = 0 then ReadLn(f, nm);
       end;
     end;
     CloseFile(f);
   end;
   {$I+}
-  Result := nm >= 0;   // True nur, wenn wirklich alle 3 Counts gelesen
+    Result := nj > 0;   // joints-only = gültige Creature
+
 end;
+
 
 procedure initSimulation();
 var a, b, c, i : Integer;
@@ -1455,6 +1656,7 @@ begin
   SetLength(avgSpeed, creatureAMT);
   SetLength(speedAmts, creatureAMT);
   SetLength(currPos, creatureAMT);
+  SetLength(currY, creatureAMT);
   SetLength(startPos, creatureAMT);
 
   time := 0;
@@ -1463,11 +1665,11 @@ begin
 
   generation := 0;
 
-  SetLength(Weights, creatureAMT, 4);
+  SetLength(Weights, creatureAMT, 7);
   SetLength(Biases, creatureAMT);
   SetLength(Fitnesses, creatureAMT);
   SetLength(BestFitnesses, creatureAMT);
-  SetLength(NewWeights, creatureAMT, 4);
+  SetLength(NewWeights, creatureAMT, 7);
   SetLength(NewBiases, creatureAMT);
 
   for i := 0 to creatureAMT - 1 do
@@ -1475,6 +1677,10 @@ begin
     Weights[i][0] := (Random * 2.0) - 1.0;
     Weights[i][1] := (Random * 2.0) - 1.0;
     Weights[i][2] := (Random * 2.0) - 1.0;
+    Weights[i][3] := (Random * 2.0) - 1.0;
+    Weights[i][4] := (Random * 2.0) - 1.0;
+    Weights[i][5] := (Random * 2.0) - 1.0;
+    Weights[i][6] := (Random * 2.0) - 1.0;
 
     biases[i] := (Random * 2.0) - 1.0;
   end;
@@ -1579,6 +1785,7 @@ begin
   begin
     startPos[i] := CreatureCenterX(i);
 
+    currY[i] := 0;
     currPos[i] := 0;
     currSpeed[i] := 0;
     avgSpeed[i] := 0;
@@ -1593,6 +1800,73 @@ begin
   prevTime := TThread.GetTickCount64;
 end;
 
+
+function getSliderValueMouse(x, y, dx, dy : Single; vertical : Boolean = False): Single;
+begin
+  curX := pt.x / 1440 * VW;          // Screen-Koordinaten, KEINE Kamera
+  curY := VH - pt.y / 900 * VH;
+  if (curX < x+dx) and (curX > x) and (curY < y+dy) and (curY > y) then
+  begin
+    if vertical then
+      getSliderValueMouse := ((curY-y)/(dy))
+    else
+      getSliderValueMouse := ((curX-x)/dx);
+  end
+  else getSliderValueMouse := -1;
+end;
+
+function getCheckBoxValueMouse(x, y, dx, dy : Single): Boolean;
+begin
+  curX := pt.x / 1440 * VW;          // Screen-Koordinaten, KEINE Kamera
+  curY := VH - pt.y / 900 * VH;
+  if (curX < x+dx) and (curX > x) and (curY < y+dy) and (curY > y) then
+    getCheckBoxValueMouse := True
+  else
+    getCheckBoxValueMouse := False;
+end;
+
+procedure drawCheckBox(x, y, dx, dy : Single; _true : Boolean = False);
+var
+  i : Integer;
+begin
+  // Rahmen
+  DrawLineTrue(Round(x), Round(y), Round(x), Round(dy+y));
+  DrawLineTrue(Round(x), Round(y), Round(dx+x), Round(y));
+  DrawLineTrue(Round(dx+x), Round(y), Round(dx+x), Round(y+dy));
+  DrawLineTrue(Round(x+dx), Round(dy+y), Round(x), Round(dy+y));
+  // Infill: Border (1px) + Abstand (1px) -> 2px Einrückung
+  if _true then begin
+  DrawLineTrue(Round(x), Round(y), Round(dx+x), Round(y+dy));
+  DrawLineTrue(Round(x), Round(y+dy), Round(dx+x), Round(y));
+  end;
+end;
+
+procedure drawSlider(x, y, dx, dy, value : Single; vertical : Boolean = False; col: Integer = clWhite);
+var
+  i : Integer;
+begin
+  // Rahmen
+  DrawLineTrue(Round(x), Round(y), Round(x), Round(dy+y), col);
+  DrawLineTrue(Round(x), Round(y), Round(dx+x), Round(y), col);
+  DrawLineTrue(Round(dx+x), Round(y), Round(dx+x), Round(y+dy), col);
+  DrawLineTrue(Round(x+dx), Round(dy+y), Round(x), Round(dy+y), col);
+  // Infill: Border (1px) + Abstand (1px) -> 2px Einrückung
+  if value <> -1 then begin
+    if vertical = False then begin
+      for i := 2 to Round(dy)-2 do
+      begin
+        DrawLineTrue(Round(x)+2, Round(i+y), Max(Round(x+(value*(dx)))-2, Round(x)+2), Round(i+y), col);
+      end;
+    end else begin
+      for i := 2 to Round(dx)-2 do
+      begin
+        DrawLineTrue(Round(i+x), Round(y)+2, Round(i+x), Max(Round(y+(value*(dy)))-2, Round(y)+2), col);
+      end;
+    end;
+  end;
+end;
+
+
 procedure switchToSim();
 var i:Integer;
 begin
@@ -1606,7 +1880,10 @@ begin
     for i:=0 to High(speedAmts) do begin
       speedAmts[i] := 0;
       currPos[i] := 0;
-      globalHighScore := 0;
+      currY[i] := 0;
+      globalHighScore := -100000;
+      globalHighScore2 := -100000;
+      globalLowScore := 10000000;
     end;
     bResetCamera := True;
     camx := -141;
@@ -1623,9 +1900,10 @@ begin
     bResetCameraDrw := True;
     LoadCreature(ExePath + 'current.lol');
     if tempLoaded then tempLoaded := False;
-    //WriteLn('load play!: ', ExePath);
   end;
+  DeleteFile(ExePath + 'preview_backup.lol');
 end;
+
 
 procedure switchToSave();
 begin
@@ -1634,8 +1912,47 @@ begin
     //SaveCreature(ExePath + 'creature.lol');
 end;
 
-procedure playerInputsSim;
+procedure switchToSettings;
 begin
+  mode := 5;
+end;
+
+procedure playerInputsSim;
+var txt:String;
+begin
+  if (KeyPressed(Ord(' '))) and (getCheckBoxValueMouse(4, 16, 6, 6)) then mode2RenderMode := 1 - mode2RenderMode;
+  drawCheckBox(4, 16, 6, 6, mode2RenderMode = 0);
+
+  if (mode2RenderMode = 0) then begin
+  if (getSliderValueMouse(4, 25, 6, 24, True) <> -1) then
+    drawSlider(4, 25, 6, 24, getSliderValueMouse(4, 25, 6, 24, True), True, clWhite)
+  else
+    drawSlider(4, 25, 6, 24, showCreatureProcentage, True, clWhite);
+
+  if (KeyPressed(Ord(' '))) and (getSliderValueMouse(4, 25, 6, 24, True) <> -1) then
+  begin
+    showCreatureProcentage := getSliderValueMouse(4, 25, 6, 24, True);
+  end;
+  if (getSliderValueMouse(4, 25, 6, 24, True) <> -1) and (getSliderValueMouse(4, 25, 6, 24, True) <> showCreatureProcentage) then begin
+  txt := Format('%.0f', [getSliderValueMouse(4, 25, 6, 24, True)*100]);
+  txt := string(txt + '%');
+  DrawText(2, 25, string(txt), clGray);
+  end else
+  begin
+  txt := Format('%.0f', [showCreatureProcentage*100]);
+  txt := string(txt + '%');
+  DrawText(2, 25, string(txt), clWhite);
+  end;
+  end else begin
+    drawSlider(4, 25, 6, 24, showCreatureProcentage, True, clGray);
+    txt := Format('%.0f', [showCreatureProcentage*100]);
+    txt := string(txt + '%');
+    DrawText(2, 25, string(txt), clGray);
+  end;
+
+  //if (getCheckBoxValueMouse(4, 16, 6, 6)) then
+
+
   if KeyPressed(VK_ESCAPE) then Halt;
 
   // Kamera (gehalten)
@@ -1652,7 +1969,6 @@ begin
     switchToDraw(True);
   end;
 end;
-
 
 
 
@@ -1687,13 +2003,23 @@ begin
     else DrawText(14, i+10, txt, clGray);
   end;
   //txt := Format('%d', [save_select]);
-  DrawText(2, 2, '[TAB]Draw Menu     [S]ave     [L]oad     [T]emporary Load', clWhite);
+  DrawText(2, 2, '[TAB]Draw Menu     [S]ave     [L]oad     ---[T]emporary Load---', clWhite);
 
   if KeyPressed(Ord('S'))  then begin SaveCreature(Format('%s%dcreature.lol', [ExePath, save_select]));  end;//GIG end;
   if (KeyPressed(Ord('L'))) then begin LoadCreature(Format('%s%dcreature.lol', [ExePath, save_select])); switchToDraw();end;
-  if KeyPressed(Ord('T')) then begin SaveCreature(ExePath + 'current.lol'); LoadCreature(Format('%s%dcreature.lol', [ExePath, save_select])); switchToDraw();tempLoaded := True; end;
+  //if KeyPressed(Ord('T')) then begin SaveCreature(ExePath + 'current.lol'); LoadCreature(Format('%s%dcreature.lol', [ExePath, save_select])); switchToDraw();tempLoaded := True; end;
   if KeyPressed(VK_UP)  then begin save_select := save_select - 1; if save_select <0 then save_select := 9; end;
   if KeyPressed(VK_DOWN)    then begin save_select := (save_select + 1) mod 10; end;
+  if KeyPressed(VK_TAB) then switchToDraw();
+  DrawPreview(save_select);
+end;
+
+procedure gameSettings;
+begin
+  DrawText(2, 2, '[TAB]Draw Menu     [S]ave     [L]oad     ---[T]emporary Load---', clWhite);
+  if (KeyPressed(Ord(' '))) and (getCheckBoxValueMouse(5, 130, 6, 6)) then level := 1 - level;
+  drawCheckBox(5, 130, 6, 6, level = 0);
+  DrawText(6, 4, 'Map 1', clWhite);
   if KeyPressed(VK_TAB) then switchToDraw();
 end;
 
@@ -1702,12 +2028,21 @@ var
   i: Integer;
   dist: Single;
   pr, r : Single;
+  txt:String;
 begin
   snappedCursor := False;
   if KeyPressed(VK_ESCAPE) then Halt;
 
   // Kamera-Reset-Taste (R): kein Edge nötig, aber frisch ist okay
   if KeyPressed(Ord('R')) then bResetCameraDrw := True;
+
+
+  //txt := Format('%.5f   |    %.2f   |   %.2f', [getSliderValueMouse(30, 50, 30, 80, true), curX, curY]);
+  //if getSliderValueMouse(30, 50, 30, 80, true) <> -1 then begin
+  //  DrawLineTrue(30, 50, 30+Round(getSliderValueMouse(30, 50, 30, 80, true)*30), 50);
+  //  DrawLineTrue(30, 50+80, 30+Round(getSliderValueMouse(30, 50, 30, 80, true)*30), 50+80);
+  //  end;
+  //DrawText(3,12, txt);
 
   // Cursor-Screen-Position und Snapping
   r := 4;
@@ -1736,14 +2071,24 @@ begin
         Break;
       end;
 
+  
+
   // ---- Undo (Ctrl+Z bzw. Z) ----
-  if KeyPressed(Ord('Z')) then
-    if Length(strgzable) > 0 then
-      case strgzable[High(strgzable)] of
-        0: DeleteLastJoint;
-        1: DeleteLastBone;
-        2: DeleteLastMuscle;
-      end;
+  if KeyPressed(Ord('Z')) and (Length(strgzable) > 0) then
+  begin
+    case strgzable[High(strgzable)] of
+      0: DeleteLastJoint;
+      1: DeleteLastBone;
+      2: DeleteLastMuscle;
+    end;
+    SetLength(strgzable, Length(strgzable) - 1);
+  end;
+
+  // ---- Settings ----
+  if KeyPressed(Ord('M')) then
+  begin
+    switchToSettings;
+  end;
 
   // ---- Save / Load ----
   if KeyPressed(VK_TAB) then
@@ -1857,10 +2202,13 @@ begin
     BestFitnesses[i].Index := i;
   end;
 
+  globalHighScore2 := globalHighScore;
   for i := 0 to creatureAMT - 1 do
   begin
     if currPos[i] > globalHighScore then
       globalHighScore := currPos[i];
+    if currPos[i] < globalLowScore then
+      globalLowScore := currPos[i];
   end;
 
   for i := 0 to creatureAMT - 1 - 1 do
@@ -1896,6 +2244,12 @@ begin
 
     NewWeights[i][3] := Weights[BestFitnesses[i].Index][3];
 
+    NewWeights[i][4] := Weights[BestFitnesses[i].Index][4];
+
+    NewWeights[i][5] := Weights[BestFitnesses[i].Index][5];
+
+    NewWeights[i][6] := Weights[BestFitnesses[i].Index][6];
+
     NewBiases[i] :=
       Biases[BestFitnesses[i].Index];
   end;
@@ -1916,9 +2270,20 @@ begin
       NewWeights[parentIndex][2] +
       (Random * (mutationSize * 2)) - mutationSize;
 
-
     NewWeights[childIndex][3] :=
       NewWeights[parentIndex][3] +
+      (Random * (mutationSize * 2)) - mutationSize;
+
+    NewWeights[childIndex][4] :=
+      NewWeights[parentIndex][4] +
+      (Random * (mutationSize * 2)) - mutationSize;
+
+    NewWeights[childIndex][5] :=
+      NewWeights[parentIndex][5] +
+      (Random * (mutationSize * 2)) - mutationSize;
+
+    NewWeights[childIndex][6] :=
+      NewWeights[parentIndex][6] +
       (Random * (mutationSize * 2)) - mutationSize;
 
     NewBiases[childIndex] :=
@@ -1943,6 +2308,7 @@ begin
 end;
 
 procedure mode1;
+var ox, oy, len, dx, dy : SIngle;
 begin
   playerInputsDraw;
   if bResetCameraDrw then resetCameraDrw(FRAME_DT);
@@ -1951,6 +2317,7 @@ begin
   DrawCurrentBone;
   DrawCurrentMuscle; //TBD
   DrawJoints;
+  
   DrawLine(0, 3, 500, 3, clGreen);
   if not snappedCursor then  drawCursor;
 {  else DrawMarker(pt.x, pt.y, clGreen);}
@@ -1960,8 +2327,27 @@ begin
     1: DrawText(2, 2, '[ Bone ]', clBrWhite);
     2: DrawText(2, 2, '[Muscle]', clRed);
   end;
+
+    currTime := TThread.GetTickCount64;
+  if (currTime div 300) mod 2 = 0 then
+  begin
+    if selectedJoint <> nil then
+    begin
+      DrawLine(Round(selectedJoint^.x - 1), Round(selectedJoint^.y - 1), Round(selectedJoint^.x + 1), Round(selectedJoint^.y - 1), clMagenta);
+      DrawLine(Round(selectedJoint^.x - 1), Round(selectedJoint^.y),     Round(selectedJoint^.x + 1), Round(selectedJoint^.y),     clMagenta);
+      DrawLine(Round(selectedJoint^.x - 1), Round(selectedJoint^.y + 1), Round(selectedJoint^.x + 1), Round(selectedJoint^.y + 1), clMagenta);
+    end;
+
+    if selectedBone <> nil then
+      DrawLine(Round(selectedBone^.a^.x), Round(selectedBone^.a^.y),
+               Round(selectedBone^.b^.x), Round(selectedBone^.b^.y), clMagenta);
+  end;
+
+
+
+
   DrawText(1, 3, '[R]eset Camera     [Space]Place     [A/D]Switch Obj     [Z]Undo     [P]lay     [Backspace]Del Selected Obj     [Entf]Reset', clWhite);
-  DrawText(1, 4, '[TAB]Save Menu', clWhite);
+  DrawText(1, 4, '[TAB]Save Menu     [M]Settings', clWhite);
 
 end;
 
@@ -1969,8 +2355,7 @@ end;
 procedure mode2;
 var
   txt: String;
-  i: Integer;
-  bestCurrent: Single;
+  i, j: Integer;
 begin
   currTime := TThread.GetTickCount64;
   realDT := (currTime - prevTime) / 1000;
@@ -1991,20 +2376,25 @@ begin
     accumulator := accumulator - FRAME_DT;
   end;
   if time > runTime then endOfGeneration;
-  playerInputsSim;
-  DrawMBones;
-  //DrawMuscles;
-  DrawMap;
-  drawCursor;
-
-  // Besten Fortschritt der aktuellen Generation ermitteln
   bestCurrent := 0;
+  worstCurrent := 10000000;
 
   for i := 0 to High(currPos) do
   begin
     if currPos[i] > bestCurrent then
       bestCurrent := currPos[i];
+    if currPos[i] < worstCurrent then
+      worstCurrent := currPos[i];
   end;
+  playerInputsSim;
+  DrawMBones;
+  //DrawMuscles;
+  DrawMap;
+  DrawOverview;
+  drawCursor;
+
+  // Besten Fortschritt der aktuellen Generation ermitteln
+  
 
   // Trainingsinformationen anzeigen
   txt := Format(
@@ -2012,23 +2402,53 @@ begin
     [generation, bestCurrent, globalHighScore]
   );
 
-  DrawText(2, 5, txt, clWhite);
+  DrawText(80, 2, txt, clWhite);
 
   DrawText(1, 3, '[R]eset Camera+Follow     [P]Back     [ARROW_KEYS]Move', clWhite);
   txt := Format('[AVG Speed] %.2f', [avgSpeed[0]]);
   DrawText(2, 2, txt, clWhite);
   txt := Format('[Current Speed] %.2f', [currSpeed[0]]);
-  DrawText(30, 2, txt, clWhite);
+  DrawText(25, 2, txt, clWhite);
   txt := Format('[Position] %.2f', [currPos[0]]);
-  DrawText(60, 2, txt, clWhite);
+  DrawText(55, 2, txt, clWhite);
+
+  DrawText(14, 1, '[', clWhite);
+
+  for i := 0 to Round(82) do
+  begin
+    DrawText(15+i, 1, '∘', clWhite);
+  end;
+
+  for i := 0 to Round((time / runTime)*82-0.5) do
+  begin
+    DrawText(15+i, 1, '●', clWhite);
+  end;
+  for i := 0 to Round((time / runTime)*82-40.5) do
+  begin
+    DrawText(15+i, 1, '•', clWhite);
+  end;
+  DrawText(Round(15+82/2), 1, '|', clWhite);
+  DrawText(15+Round((time / runTime)*82+0.5), 1, '⬤', clWhite);
+  
+  DrawText(98, 1, ']', clWhite);
+
   if bResetCamera then resetCamera(FRAME_DT);
 end;
+
+
+
 
 procedure mode3;
 begin
   playerInputsSave;
 end;
 
+
+procedure mode5;
+begin
+  gameSettings;
+  if not snappedCursor then  drawCursor;
+end;
 
 begin
   InitTerminal;
@@ -2054,9 +2474,16 @@ begin
     end else if mode = 2 then
     begin
       mode2;
+    end else if mode = 4 then
+    begin
+      WriteLn('wow');//mode4; 
     end else if mode = 3 then
     begin
       mode3;
+    end
+    else if mode = 5 then
+    begin
+      mode5;
     end;
 
     Draw;
